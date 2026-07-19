@@ -23,14 +23,14 @@ use codespan_reporting::term as term_reporting;
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
-struct PlicHelper {
+struct ChatLangHelper {
     env: Arc<Mutex<Environment>>,
     keywords: Vec<String>,
     builtins: Vec<String>,
     types: Vec<String>,
 }
 
-impl Completer for PlicHelper {
+impl Completer for ChatLangHelper {
     type Candidate = String;
 
     fn complete(&self, line: &str, pos: usize, _ctx: &rustyline::Context<'_>) -> rustyline::Result<(usize, Vec<String>)> {
@@ -59,10 +59,10 @@ impl Completer for PlicHelper {
     }
 }
 
-impl Highlighter for PlicHelper {
+impl Highlighter for ChatLangHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
         let mut result = String::new();
-        let mut in_string = false;  // больше не mutable
+        let in_string = false;
         let mut in_comment = false;
         let mut multiline_comment_depth = 0;
         let mut in_fstring = false;
@@ -193,18 +193,18 @@ impl Highlighter for PlicHelper {
     }
 }
 
-impl Hinter for PlicHelper {
+impl Hinter for ChatLangHelper {
     type Hint = String;
     fn hint(&self, _line: &str, _pos: usize, _ctx: &rustyline::Context<'_>) -> Option<String> { None }
 }
 
-impl Validator for PlicHelper {
+impl Validator for ChatLangHelper {
     fn validate(&self, _ctx: &mut ValidationContext<'_>) -> rustyline::Result<ValidationResult> {
         Ok(ValidationResult::Valid(None))
     }
 }
 
-impl Helper for PlicHelper {}
+impl Helper for ChatLangHelper {}
 
 fn main() {
     // Global panic handler to avoid unwrap messages.
@@ -271,7 +271,7 @@ fn main() {
         return;
     }
 
-    let helper = PlicHelper {
+    let helper = ChatLangHelper {
         env: Arc::clone(&env_arc),
         keywords: vec![
             "let".into(), "if".into(), "then".into(), "else".into(),
@@ -348,7 +348,7 @@ fn main() {
 
     let mut rl = Editor::new().unwrap();
     rl.set_helper(Some(helper));
-    let _ = rl.load_history(".plic_history");
+    let _ = rl.load_history(".chatlang_history");
 
     let mut buffer = String::new();
     let mut in_multiline = false;
@@ -468,5 +468,5 @@ fn main() {
             Err(_) => break,
         }
     }
-    let _ = rl.save_history(".plic_history");
+    let _ = rl.save_history(".chatlang_history");
 }

@@ -431,7 +431,6 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
                 type_ann = Some(type_str);
             }
 
-            // Read parameters as a sequence of identifiers WITHOUT commas.
             let mut params = Vec::new();
             while *pos < tokens.len() && matches!(tokens[*pos].kind, TokenKind::Ident(_)) {
                 if let TokenKind::Ident(p) = &tokens[*pos].kind {
@@ -628,8 +627,8 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
                     break;
                 }
             }
-            let end = expect_kind(tokens, pos, TokenKind::RParen)?;
-            Ok(Expr::StructDef(name, fields, Span::new(start, end)))
+            let _end = expect_kind(tokens, pos, TokenKind::RParen)?;
+            Ok(Expr::StructDef(name, fields, Span::new(start, _end)))
         }
         TokenKind::Data => {
             *pos += 1;
@@ -673,8 +672,8 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
                     break;
                 }
             }
-            let end = tokens[*pos - 1].end;
-            Ok(Expr::DataDef(name, params, constructors, Span::new(start, end)))
+            let _end = tokens[*pos - 1].end;
+            Ok(Expr::DataDef(name, params, constructors, Span::new(start, _end)))
         }
         TokenKind::For => {
             *pos += 1;
@@ -703,7 +702,6 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
         TokenKind::Loop => {
             *pos += 1;
             expect_kind(tokens, pos, TokenKind::LBrace)?;
-            // Parse a block of expressions inside braces, separated by semicolons or newlines.
             let mut exprs = Vec::new();
             while *pos < tokens.len() && tokens[*pos].kind != TokenKind::RBrace {
                 let e = parse_expr(tokens, pos)?;
@@ -894,7 +892,6 @@ fn parse_postfix(mut expr: Expr, tokens: &[Token], pos: &mut usize) -> ParseResu
             let end = expect_kind(tokens, pos, TokenKind::RBracket)?;
             expr = Expr::Index(Box::new(expr), Box::new(index), Span::new(start, end));
         } else if *pos < tokens.len() && tokens[*pos].kind == TokenKind::LBrace {
-            // Record update: expr { field = value, ... }
             let start = tokens[*pos].start;
             *pos += 1;
             let mut updates = Vec::new();
