@@ -72,7 +72,6 @@ pub fn start_p2p_listener(port: u16, state: Arc<Mutex<ChatState>>) {
     };
     let acceptor = get_tls_acceptor();
     thread::spawn(move || {
-        println!("P2P listener on port {} (TLS)", port);
         for stream in listener.incoming() {
             if let Ok(stream) = stream {
                 let acceptor = acceptor.clone();

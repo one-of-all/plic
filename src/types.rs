@@ -93,7 +93,7 @@ pub enum Value {
         class: String,
         fields: BTreeMap<String, Value>,
     },
-    Break(Option<Box<Value>>), // internal use only
+    Break(Option<Box<Value>>),
 }
 
 #[derive(Clone, Serialize, Deserialize)]

@@ -1,0 +1,213 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "plic",
+  "scopeName": "source.plic",
+  "fileTypes": ["cl", "plic"],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#uid"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#identifiers"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.plic",
+          "match": "#[^B-].*$"
+        },
+        {
+          "begin": "#-",
+          "end": "-#",
+          "name": "comment.block.plic",
+          "patterns": [
+            {
+              "include": "#comments"
+            }
+          ]
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.plic",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.plic",
+              "match": "\\\\(n|t|r|\\\\|\"|')"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.plic",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.plic",
+              "match": "\\\\(n|t|r|\\\\|'|\")"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.fstring.plic",
+          "begin": "f\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "include": "#fstring_expression"
+            },
+            {
+              "name": "constant.character.escape.plic",
+              "match": "\\\\(n|t|r|\\\\|\"|')"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.bytestring.plic",
+          "begin": "#B\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.hex.plic",
+              "match": "[0-9A-Fa-f]{2}"
+            }
+          ]
+        }
+      ]
+    },
+    "fstring_expression": {
+      "patterns": [
+        {
+          "begin": "{",
+          "end": "}",
+          "name": "meta.embedded.expression.plic",
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.integer.plic",
+          "match": "\\b\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.float.plic",
+          "match": "\\b\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.duration.plic",
+          "match": "\\b\\d+(\\.\\d+)?[smMh]\\b"
+        }
+      ]
+    },
+    "uid": {
+      "name": "constant.other.uid.plic",
+      "match": "@[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.plic",
+          "match": "\\b(if|then|else|case|of|try|catch|error|for|while|lambda|and|or|not|class|extends|new|let|in|data|struct|loop|break|load|del)\\b"
+        },
+        {
+          "name": "keyword.other.plic",
+          "match": "\\b(addContact|removeContact|newChat|addMember|removeMember|deleteChat|sendChat|sendFileToChat|inbox|history|downloads|saveFile|serverStart|serverStop|connect|getPublicIP|setExternalIP|toFloat|toInt|typeof)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.plic",
+          "match": "\\b(Int|Float|Char|String|Bool|Unit|Uid|ByteString|Duration|List|Tuple|Record|Pid|DateTime|Json|Maybe|Either|ChatMsg|FileInfo|FileTransfer|FetchOptions|FetchResult|Map|Set|ClassInstance)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arithmetic.plic",
+          "match": "[-+*/%]"
+        },
+        {
+          "name": "keyword.operator.comparison.plic",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.logical.plic",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.pipe.plic",
+          "match": "\\|>"
+        },
+        {
+          "name": "keyword.operator.dollar.plic",
+          "match": "\\$"
+        },
+        {
+          "name": "keyword.operator.cons.plic",
+          "match": ":"
+        },
+        {
+          "name": "keyword.operator.concat.plic",
+          "match": "\\+\\+"
+        },
+        {
+          "name": "keyword.operator.assignment.plic",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.member.plic",
+          "match": "\\."
+        },
+        {
+          "name": "keyword.operator.other.plic",
+          "match": "->|=>|::|;|,|\\(|\\)|\\[|\\]|\\{|\\}"
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "entity.name.function.plic",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*\\()"
+        },
+        {
+          "name": "variable.other.plic",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}

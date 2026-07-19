@@ -1,31 +1,31 @@
 # Simple arithmetic
-show(1 + 2 * 3)          # 7
-show((10 - 5) / 2)       # 2.5
+show $ 1 + 2 * 3        # 7
+show $ (10 - 5) / 2     # 2.5
 
 # Variables and assignments
 let x = 10
-show(x)                  # 10
+show $ x                # 10
 x = x + 5
-show(x)                  # 15
+show $ x                # 15
 
 # Functions (curried)
 let square x = x * x
-show(square 4)           # 16
+show $ square 4         # 16
 
 let add a b = a + b
-show(add 3 4)            # 7
+show $ add 3 4          # 7
 
 # Lambda
 let inc = lambda x -> x + 1
-show(inc 5)              # 6
+show $ inc 5            # 6
 
 # Type annotations
 let N :: Num = 42
-show(typeof N)           # Num
+show typeof N           # Num
 let greet :: String = "Hello"
-show(greet)              # Hello
+show $ greet            # Hello
 
 # Numeric conversion
 let pi = 3.14159
-show(toInt pi)           # 3
-show(toFloat 5)          # 5.0
+show $ toInt pi         # 3
+show $ toFloat 5        # 5.0

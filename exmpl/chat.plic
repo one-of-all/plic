@@ -23,11 +23,11 @@ writeFile("report.txt", "Sales data for Q1")
 sendFileToChat("general", "report.txt")
 
 # Check inbox and history
-show(inbox())          # lists all private messages for Alice
-show(history("general"))  # shows chat history
+show $ inbox()              # lists all private messages for Alice
+show $ history("general")   # shows chat history
 
 # List downloads and save file
-show(downloads())      # shows received file transfers
+show $ downloads()          # shows received file transfers
 saveFile(0, "received_report.txt")
 
 # Stop server

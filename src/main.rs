@@ -11,7 +11,7 @@ use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
 use rustyline::validate::{Validator, ValidationContext, ValidationResult};
 use rustyline::Helper;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::fs;
 use std::env;
 use std::collections::BTreeSet;
@@ -20,6 +20,9 @@ use codespan::Files;
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 use codespan_reporting::term as term_reporting;
+use std::sync::atomic;
+
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
 struct ChatLangHelper {
     env: Arc<Mutex<Environment>>,
@@ -69,7 +72,7 @@ impl Highlighter for ChatLangHelper {
             "let", "if", "then", "else", "case", "of", "lambda", "\\",
             "data", "struct", "try", "catch", "error", "for", "while",
             "true", "false", "in", "and", "or", "not", "class", "extends", "new",
-            "loop", "break"
+            "loop", "break", "load", "del"
         ];
         let types = [
             "Num", "Char", "String", "Bool", "Unit", "Uid",
@@ -80,7 +83,6 @@ impl Highlighter for ChatLangHelper {
         ];
         let mut chars = line.chars().peekable();
         while let Some(ch) = chars.next() {
-            // Multiline comment
             if ch == '#' && chars.peek() == Some(&'-') {
                 chars.next();
                 multiline_comment_depth += 1;
@@ -112,7 +114,6 @@ impl Highlighter for ChatLangHelper {
                 continue;
             }
 
-            // Single-line comment
             if ch == '#' && chars.peek() != Some(&'B') && chars.peek() != Some(&'-') {
                 result.push_str("\x1b[3;90m#");
                 while let Some(c) = chars.next() {
@@ -122,7 +123,6 @@ impl Highlighter for ChatLangHelper {
                 break;
             }
 
-            // F-string
             if ch == 'f' && chars.peek() == Some(&'"') {
                 in_fstring = true;
                 result.push_str("\x1b[32m");
@@ -151,7 +151,6 @@ impl Highlighter for ChatLangHelper {
                 continue;
             }
 
-            // Regular code highlighting
             if ch.is_alphabetic() || ch == '_' {
                 let mut word = String::new();
                 word.push(ch);
@@ -168,14 +167,7 @@ impl Highlighter for ChatLangHelper {
                 } else if types.contains(&word.as_str()) {
                     result.push_str(&format!("\x1b[35m{}\x1b[0m", word));
                 } else {
-                    let env_guard = self.env.lock().unwrap();
-                    let defined = env_guard.vars.contains_key(&word);
-                    drop(env_guard);
-                    if defined {
-                        result.push_str(&format!("\x1b[4;37m{}\x1b[0m", word));
-                    } else {
-                        result.push_str(&format!("\x1b[37m{}\x1b[0m", word));
-                    }
+                    result.push_str(&format!("\x1b[37m{}\x1b[0m", word));
                 }
             } else if ch.is_digit(10) {
                 result.push_str(&format!("\x1b[33m{}\x1b[0m", ch));
@@ -241,6 +233,11 @@ fn main() {
         state_guard.p2p_port = p2p_port;
     }
 
+    ctrlc::set_handler(|| {
+        INTERRUPTED.store(true, Ordering::SeqCst);
+        plic::eval::set_interrupted();
+    }).expect("Error setting Ctrl-C handler");
+
     if args.len() > 1 && !args[1].starts_with("--") {
         let filename = &args[1];
         match fs::read_to_string(filename) {
@@ -278,7 +275,7 @@ fn main() {
             "error".into(), "for".into(), "while".into(), "in".into(),
             "and".into(), "or".into(), "not".into(),
             "class".into(), "extends".into(), "new".into(),
-            "loop".into(), "break".into(),
+            "loop".into(), "break".into(), "load".into(), "del".into(),
         ],
         builtins: vec![
             "sqrt".into(), "sin".into(), "cos".into(), "tan".into(),
@@ -330,6 +327,7 @@ fn main() {
             "logout".into(), "deleteUser".into(), "deleteChat".into(),
             "listChats".into(), "members".into(),
             "addContact".into(), "removeContact".into(),
+            "p2pPort".into(),
         ],
         types: vec![
             "Num".into(), "Char".into(), "String".into(),
@@ -363,7 +361,6 @@ fn main() {
                 rl.add_history_entry(line.as_str());
                 let trimmed = line.trim();
 
-                // If we are in multiline and line is "end" or empty with indent 0, finish block
                 if in_multiline && (trimmed == "end" || (line.chars().take_while(|c| *c == ' ').count() == 0 && trimmed.is_empty())) {
                     let full_block = buffer.clone();
                     match parse_script(&full_block) {
@@ -398,9 +395,7 @@ fn main() {
                     buffer.push('\n');
                     buffer.push_str(&line);
                     let current_indent = line.chars().take_while(|c| *c == ' ').count();
-                    // If the line has indent 0 and is not empty, it might be a new top-level statement – finish block
                     if current_indent == 0 && !trimmed.is_empty() && trimmed != "end" {
-                        // finish block
                         let full_block = buffer.clone();
                         match parse_script(&full_block) {
                             Ok(expr) => {
@@ -415,26 +410,49 @@ fn main() {
                         buffer.clear();
                         in_multiline = false;
                         indent_level = 0;
-                        // Now we need to process the current line as a new top-level expression? 
-                        // But we already consumed it. We'll just continue.
-                        continue;
-                    } else {
-                        // Still inside block
                         continue;
                     }
+                    continue;
                 }
 
-                // Single-line expression
                 match parse_expression(&stripped) {
                     Ok(expr) => {
                         let mut env_guard = env_arc.lock().unwrap();
                         match eval_expr(&expr, &mut env_guard, Arc::clone(&state)) {
                             Ok(_) => {},
-                            Err(err) => eprintln!("\x1b[31merror\x1b[0m: {}", err),
+                            Err(err) => {
+                                if err.span.is_some() {
+                                    let mut files = Files::new();
+                                    let file_id = files.add("<repl>", line.clone());
+                                    let diagnostic = Diagnostic::error()
+                                        .with_message(err.message)
+                                        .with_labels(vec![
+                                            Label::primary(file_id, err.span.unwrap().start..err.span.unwrap().end)
+                                        ]);
+                                    let writer = StandardStream::stderr(ColorChoice::Always);
+                                    let config = term_reporting::Config::default();
+                                    let _ = term_reporting::emit(&mut writer.lock(), &config, &files, &diagnostic);
+                                } else {
+                                    eprintln!("\x1b[31merror\x1b[0m: {}", err);
+                                }
+                            }
                         }
                     }
-                    Err(ParseError { message, span: _span }) => {
-                        eprintln!("\x1b[31merror\x1b[0m: Parse error: {}", message);
+                    Err(ParseError { message, span }) => {
+                        if span != plic::ast::Span::dummy() {
+                            let mut files = Files::new();
+                            let file_id = files.add("<repl>", line.clone());
+                            let diagnostic = Diagnostic::error()
+                                .with_message(message)
+                                .with_labels(vec![
+                                    Label::primary(file_id, span.start..span.end)
+                                ]);
+                            let writer = StandardStream::stderr(ColorChoice::Always);
+                            let config = term_reporting::Config::default();
+                            let _ = term_reporting::emit(&mut writer.lock(), &config, &files, &diagnostic);
+                        } else {
+                            eprintln!("\x1b[31merror\x1b[0m: Parse error: {}", message);
+                        }
                     }
                 }
             }

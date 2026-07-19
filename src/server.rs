@@ -1,4 +1,4 @@
-//! Contact server (unchanged except for error handling).
+//! Contact server.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
@@ -22,10 +22,8 @@ pub fn start_contacts_server(addr: &str, password: Option<String>) -> Result<(Co
     let (stop_tx, stop_rx) = std::sync::mpsc::channel();
 
     let handle = thread::spawn(move || {
-        println!("Contact server (TLS) listening on {}", addr_owned);
         loop {
             if let Ok(()) = stop_rx.try_recv() {
-                println!("Contact server stopping.");
                 break;
             }
 

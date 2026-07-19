@@ -72,6 +72,7 @@ pub fn parse_expression(input: &str) -> ParseResult<Expr> {
     let mut lexer = Lexer::new(&stripped);
     let tokens = lexer.tokenize()?;
     let mut pos = 0;
+    skip_newlines(&tokens, &mut pos);
     let expr = parse_expr(&tokens, &mut pos)?;
     while pos < tokens.len() && (matches!(tokens[pos].kind, TokenKind::NEWLINE) || matches!(tokens[pos].kind, TokenKind::DEDENT)) {
         pos += 1;
@@ -89,6 +90,7 @@ pub fn parse_script(input: &str) -> ParseResult<Expr> {
     let tokens = lexer.tokenize()?;
     let mut pos = 0;
     let mut exprs = Vec::new();
+    skip_newlines(&tokens, &mut pos);
     while pos < tokens.len() && tokens[pos].kind != TokenKind::Eof {
         let e = parse_expr(&tokens, &mut pos)?;
         exprs.push(e);
@@ -428,31 +430,13 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
             }
 
             let mut params = Vec::new();
-            if *pos < tokens.len() && tokens[*pos].kind == TokenKind::LParen {
-                *pos += 1;
-                while *pos < tokens.len() && tokens[*pos].kind != TokenKind::RParen {
-                    if let TokenKind::Ident(p) = &tokens[*pos].kind {
-                        params.push(p.clone());
-                        *pos += 1;
-                        if *pos < tokens.len() && tokens[*pos].kind == TokenKind::Comma {
-                            *pos += 1;
-                        }
-                    } else {
-                        return Err(ParseError { message: "expected parameter name".to_string(), span: Span::new(tokens[*pos].start, tokens[*pos].end) });
-                    }
-                }
-                expect_kind(tokens, pos, TokenKind::RParen)?;
-            } else {
-                while *pos < tokens.len() && matches!(tokens[*pos].kind, TokenKind::Ident(_)) {
-                    if let TokenKind::Ident(p) = &tokens[*pos].kind {
-                        params.push(p.clone());
-                        *pos += 1;
-                        if *pos < tokens.len() && tokens[*pos].kind == TokenKind::Comma {
-                            *pos += 1;
-                        } else {
-                            break;
-                        }
-                    } else { break; }
+            // No parentheses allowed; just a sequence of identifiers without commas
+            while *pos < tokens.len() && matches!(tokens[*pos].kind, TokenKind::Ident(_)) {
+                if let TokenKind::Ident(p) = &tokens[*pos].kind {
+                    params.push(p.clone());
+                    *pos += 1;
+                } else {
+                    break;
                 }
             }
 
@@ -593,38 +577,20 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
                 let end = expect_kind(tokens, pos, TokenKind::RParen)?;
                 Ok(Expr::Tuple(elems, Span::new(start, end)))
             } else {
-                let end = expect_kind(tokens, pos, TokenKind::RParen)?;
+                let _end = expect_kind(tokens, pos, TokenKind::RParen)?;
                 Ok(expr)
             }
         }
         TokenKind::Backslash | TokenKind::Lambda => {
             *pos += 1;
             let mut params = Vec::new();
-            if *pos < tokens.len() && tokens[*pos].kind == TokenKind::LParen {
-                *pos += 1;
-                while *pos < tokens.len() && tokens[*pos].kind != TokenKind::RParen {
-                    if let TokenKind::Ident(p) = &tokens[*pos].kind {
-                        params.push(p.clone());
-                        *pos += 1;
-                        if *pos < tokens.len() && tokens[*pos].kind == TokenKind::Comma {
-                            *pos += 1;
-                        }
-                    } else {
-                        return Err(ParseError { message: "expected parameter name".to_string(), span: Span::new(tokens[*pos].start, tokens[*pos].end) });
-                    }
-                }
-                expect_kind(tokens, pos, TokenKind::RParen)?;
-            } else {
-                while *pos < tokens.len() && matches!(tokens[*pos].kind, TokenKind::Ident(_)) {
-                    if let TokenKind::Ident(p) = &tokens[*pos].kind {
-                        params.push(p.clone());
-                        *pos += 1;
-                        if *pos < tokens.len() && tokens[*pos].kind == TokenKind::Comma {
-                            *pos += 1;
-                        } else {
-                            break;
-                        }
-                    } else { break; }
+            // No parentheses; just a sequence of identifiers without commas
+            while *pos < tokens.len() && matches!(tokens[*pos].kind, TokenKind::Ident(_)) {
+                if let TokenKind::Ident(p) = &tokens[*pos].kind {
+                    params.push(p.clone());
+                    *pos += 1;
+                } else {
+                    break;
                 }
             }
             expect_kind(tokens, pos, TokenKind::Arrow)?;
@@ -931,8 +897,30 @@ fn parse_postfix(mut expr: Expr, tokens: &[Token], pos: &mut usize) -> ParseResu
                     let end = expect_kind(tokens, pos, TokenKind::RParen)?;
                     expr = Expr::MethodCall(Box::new(expr), field, args, Span::new(start, end));
                 } else {
-                    let end = tokens[*pos - 1].end;
-                    expr = Expr::FieldAccess(Box::new(expr), field, Span::new(start, end));
+                    // Check for record update: expr { field = value }
+                    if *pos < tokens.len() && tokens[*pos].kind == TokenKind::LBrace {
+                        let start2 = tokens[*pos].start;
+                        *pos += 1;
+                        let mut updates = Vec::new();
+                        while *pos < tokens.len() && tokens[*pos].kind != TokenKind::RBrace {
+                            let f = match &tokens[*pos].kind {
+                                TokenKind::Ident(n) => n.clone(),
+                                _ => return Err(ParseError { message: "expected field name".to_string(), span: Span::new(tokens[*pos].start, tokens[*pos].end) }),
+                            };
+                            *pos += 1;
+                            expect_kind(tokens, pos, TokenKind::Assign)?;
+                            let val = parse_expr(tokens, pos)?;
+                            updates.push((f, val));
+                            if *pos < tokens.len() && tokens[*pos].kind == TokenKind::Comma {
+                                *pos += 1;
+                            }
+                        }
+                        let end2 = expect_kind(tokens, pos, TokenKind::RBrace)?;
+                        expr = Expr::RecordUpdate(Box::new(expr), updates, Span::new(start2, end2));
+                    } else {
+                        let end = tokens[*pos - 1].end;
+                        expr = Expr::FieldAccess(Box::new(expr), field, Span::new(start, end));
+                    }
                 }
             } else {
                 return Err(ParseError { message: "expected field or method name".to_string(), span: Span::new(tokens[*pos].start, tokens[*pos].end) });

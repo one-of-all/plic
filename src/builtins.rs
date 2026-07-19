@@ -2431,6 +2431,15 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         }),
     );
 
+    let state_for_p2p_port = state.clone();
+    env.set(
+        "p2pPort".to_string(),
+        builtin!("p2pPort", 0, move |_args| {
+            let port = state_for_p2p_port.lock().unwrap().p2p_port;
+            Ok(Value::Num(Number::Int(port as i64)))
+        }),
+    );
+
     {
         let mut state_guard = state.lock().unwrap();
         if state_guard.p2p_port == 0 {

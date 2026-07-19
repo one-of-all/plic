@@ -23,6 +23,7 @@ thiserror = "1.0"
 aes-gcm = "0.10"
 codespan = "0.11"
 codespan-reporting = "0.11"
+ctrlc = "3.4"
 
 [[bin]]
 name = "plic"

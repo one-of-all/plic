@@ -6,11 +6,12 @@ use crate::error::ChatError;
 use crate::types::{Environment, Value, Number};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::Ordering};
 use std::thread;
 use std::sync::mpsc::{self, Sender, Receiver};
 use once_cell::sync::Lazy;
 use std::time::Duration;
+use std::sync::atomic;
 
 pub struct Process {
     pub sender: Sender<Value>,
@@ -27,6 +28,14 @@ thread_local! {
     static CURRENT_RECEIVER: std::cell::RefCell<Option<Receiver<Value>>> = const { std::cell::RefCell::new(None) };
 }
 
+static INTERRUPTED: atomic::AtomicBool = atomic::AtomicBool::new(false);
+
+/// Set the interruption flag (called from signal handler).
+pub fn set_interrupted() {
+    INTERRUPTED.store(true, Ordering::SeqCst);
+}
+
+/// Evaluate an expression in the given environment and chat state.
 pub fn eval_expr(
     expr: &Expr,
     env: &mut Environment,
@@ -172,7 +181,13 @@ pub fn eval_expr(
                     }
                     Ok(Value::Record(map))
                 }
-                _ => Err(ChatError::with_span("Record update on non-record", 1, *span)),
+                Value::ClassInstance { mut fields, class } => {
+                    for (k, v) in updates {
+                        fields.insert(k.clone(), eval_expr(v, env, Arc::clone(&state))?);
+                    }
+                    Ok(Value::ClassInstance { class, fields })
+                }
+                _ => Err(ChatError::with_span("Record update on non-record or non-class instance", 1, *span)),
             }
         }
         Expr::BinOp(op, l, r, span) => {
@@ -256,7 +271,6 @@ pub fn eval_expr(
         Expr::Index(list, idx, span) => {
             let coll = eval_expr(list, env, Arc::clone(&state))?;
             let index = eval_expr(idx, env, Arc::clone(&state))?;
-            // Automatic float to int conversion for indexing
             let index_int = match index {
                 Value::Num(Number::Int(i)) => i,
                 Value::Num(Number::Float(f)) => f as i64,
@@ -306,6 +320,9 @@ pub fn eval_expr(
             match iter_val {
                 Value::List(list) => {
                     for item in list {
+                        if INTERRUPTED.load(Ordering::SeqCst) {
+                            return Err(ChatError::with_span("Execution interrupted by user", 1, *span));
+                        }
                         let mut new_env = env.clone();
                         new_env.set(var.clone(), item);
                         eval_expr(body, &mut new_env, Arc::clone(&state))?;
@@ -314,6 +331,9 @@ pub fn eval_expr(
                 }
                 Value::Set(set) => {
                     for item in set {
+                        if INTERRUPTED.load(Ordering::SeqCst) {
+                            return Err(ChatError::with_span("Execution interrupted by user", 1, *span));
+                        }
                         let mut new_env = env.clone();
                         new_env.set(var.clone(), Value::String(item));
                         eval_expr(body, &mut new_env, Arc::clone(&state))?;
@@ -322,6 +342,9 @@ pub fn eval_expr(
                 }
                 Value::Map(map) => {
                     for (k, v) in map {
+                        if INTERRUPTED.load(Ordering::SeqCst) {
+                            return Err(ChatError::with_span("Execution interrupted by user", 1, *span));
+                        }
                         let mut new_env = env.clone();
                         new_env.set(var.clone(), Value::Tuple(vec![Value::String(k), v]));
                         eval_expr(body, &mut new_env, Arc::clone(&state))?;
@@ -333,6 +356,9 @@ pub fn eval_expr(
         }
         Expr::While(cond, body, span) => {
             loop {
+                if INTERRUPTED.load(Ordering::SeqCst) {
+                    return Err(ChatError::with_span("Execution interrupted by user", 1, *span));
+                }
                 let c = eval_expr(cond, env, Arc::clone(&state))?;
                 match c {
                     Value::Bool(true) => {
@@ -344,8 +370,11 @@ pub fn eval_expr(
             }
             Ok(Value::Unit)
         }
-        Expr::Loop(body, _span) => {
+        Expr::Loop(body, span) => {
             loop {
+                if INTERRUPTED.load(Ordering::SeqCst) {
+                    return Err(ChatError::with_span("Execution interrupted by user", 1, *span));
+                }
                 match eval_expr(body, env, Arc::clone(&state)) {
                     Ok(Value::Break(Some(val))) => return Ok(*val),
                     Ok(Value::Break(None)) => return Ok(Value::Unit),
@@ -485,7 +514,6 @@ pub fn eval_expr(
                 acc: &mut Vec<Value>,
             ) -> Result<(), ChatError> {
                 if gens.is_empty() {
-                    // Check filters
                     for filter in filters {
                         let cond = eval_expr(filter, env, Arc::clone(&state))?;
                         if let Value::Bool(b) = cond {
@@ -533,6 +561,7 @@ pub fn eval_expr(
     }
 }
 
+/// Helper to extract span from expression.
 fn e_span(e: &Expr) -> Span {
     match e {
         Expr::Lit(_, s) => *s,
@@ -846,6 +875,7 @@ pub fn match_pattern(pat: &Pattern, val: &Value) -> Option<BTreeMap<String, Valu
     }
 }
 
+/// Spawn a new process.
 pub fn spawn_process(closure: Value, state: Arc<Mutex<ChatState>>) -> Result<Value, ChatError> {
     match closure {
         Value::Closure(params, body, env) if params.is_empty() => {
