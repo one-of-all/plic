@@ -1,0 +1,59 @@
+# If‑then‑else
+let age = 20
+if age >= 18 then
+    show("Adult")
+else
+    show("Minor")
+
+# For loop over list
+let sum = 0
+for x in [1, 2, 3, 4]:
+    sum = sum + x
+show(sum)                # 10
+
+# For over set
+let s = %[apple, banana, cherry]
+for item in s:
+    show(item)           # prints each string
+
+# For over map
+let m = %(1 => "one", 2 => "two")
+for pair in m:
+    show(pair)           # prints (1, "one") etc.
+
+# While loop
+let i = 0
+while i < 5:
+    i = i + 1
+show(i)                  # 5
+
+# Infinite loop with break
+let counter = 0
+loop {
+    counter = counter + 1
+    if counter == 3 then
+        break "done"
+}
+show(counter)            # 3 (last value before break)
+
+# Pattern matching (one‑line)
+show(case 2 of 1 -> "one"; 2 -> "two"; _ -> "other")  # two
+
+# Pattern matching (multiline)
+case 10 of
+    0 -> "zero"
+    n -> "positive: " ++ show(n)
+# returns "positive: 10"
+
+# Tuple pattern
+let pair = (1, "apple")
+case pair of
+    (1, fruit) -> "found " ++ fruit
+    _ -> "other"
+# returns "found apple"
+
+# List pattern
+case [1, 2, 3] of
+    [x, y, z] -> x + y + z
+    _ -> 0
+# returns 6

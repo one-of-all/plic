@@ -1,0 +1,51 @@
+# Spawn a process that waits for a message and prints it
+let p = spawn(lambda () -> {
+    let msg = procRecv()
+    show("Received: " ++ show(msg))
+    procExit(msg)
+})
+
+# Send a message to the process
+procSend(p, "Hello from main!")
+
+# Wait for the process to finish and get its exit value
+let result = procWait(p)
+show("Process exited with: " ++ show(result))
+
+# Self PID
+let self = procSelf()
+show(self)   # prints <pid ...>
+
+# Sleep
+sleep(2s)
+show("Slept for 2 seconds")
+
+# After – schedule a function to run after a delay
+after(1s, lambda () -> show("Delayed message"))
+
+# More complex process example with multiple messages
+let p2 = spawn(lambda () -> {
+    loop {
+        let msg = procRecv()
+        if msg == "stop" then
+            break "stopped"
+        else
+            show("Process 2 received: " ++ show(msg))
+    }
+})
+procSend(p2, "first")
+procSend(p2, "second")
+sleep(500ms)
+procSend(p2, "stop")
+let exit = procWait(p2)
+show("p2 exit: " ++ show(exit))
+
+# Show that processes can run concurrently
+let p3 = spawn(lambda () -> {
+    sleep(1s)
+    procSend(procSelf(), "done")
+    procRecv()  # wait for ack
+})
+procSend(p3, "ack")
+let res = procWait(p3)
+show("p3 result: " ++ show(res))

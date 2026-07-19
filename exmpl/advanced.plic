@@ -1,0 +1,54 @@
+# Classes
+class Counter = (
+    val = Num;
+    inc(self) = self { val = self.val + 1 };
+    get(self) = self.val
+)
+let c = new Counter(0)
+show(c.inc().inc().get())      # 2
+
+# Inheritance
+class AdvancedCounter extends Counter = (
+    dec(self) = self { val = self.val - 1 }
+)
+let ac = new AdvancedCounter(10)
+show(ac.dec().get())           # 9
+
+# Algebraic Data Types (union)
+data Option a = None | Some a
+let opt = Some 42
+case opt of
+    Some x -> "value: " ++ show(x)
+    None -> "nothing"
+# returns "value: 42"
+
+# Structs (already shown)
+struct Point = (x = Num, y = Num)
+let p = Point(x = 3, y = 4)
+show(p.x + p.y)                # 7
+
+# Exceptions
+try
+    error "oops"
+catch e -> "caught: " ++ e
+# returns "caught: oops"
+
+# List comprehensions
+let nums = [1, 2, 3, 4, 5]
+show([x * 2 for x in nums if x > 2])   # [6, 8, 10]
+# Multiple generators
+show([(x, y) for x in [1,2] for y in [a,b]])  # [(1,'a'), (1,'b'), (2,'a'), (2,'b')]
+
+# F‑strings
+let name = "Alice"
+let age = 30
+show(f"Name: {name}, Age: {age}, Next year: {age + 1}")
+# "Name: Alice, Age: 30, Next year: 31"
+
+# Del (delete variable)
+let temp = 5
+del("temp")
+# temp is now undefined
+
+# Load (import another file)
+# load("other.plic")

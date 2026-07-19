@@ -1,0 +1,10 @@
+pub mod ast;
+pub mod error;
+pub mod lexer;
+pub mod parser;
+pub mod types;
+pub mod eval;
+pub mod builtins;
+pub mod chat;
+pub mod p2p;
+pub mod server;
