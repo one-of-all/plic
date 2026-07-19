@@ -505,33 +505,23 @@ Alice
 **Установка внешнего IP и запуск сервера с паролем:**
 ```
 >>> setExternalIP "203.0.113.5"
-()
 >>> serverStart "0.0.0.0:9000" "secret"
-()
 ```
 
 **Алиса:**
 ```
 >>> login @alice
-()
 >>> connect "127.0.0.1:9000" @alice "secret"
-1
 >>> newChat "general" [@bob, @alice]
-general
 >>> open "general"
-()
 >>> sendChat "general" "Hello everyone!"
-true
 >>> send @bob "Hello Bob!"
-true
 ```
 
 **Боб (другой экземпляр):**
 ```
 >>> login @bob
-()
 >>> connect "127.0.0.1:9000" @bob "secret"
-1
 >>> show inbox
 [[Message from @alice in general: "Hello everyone!"], [Message from @alice: "Hello Bob!"]]
 >>> show $ history "general"
@@ -541,22 +531,17 @@ true
 **Передача файла:**
 ```
 >>> writeFile "report.txt" "Sales data"
-()
 >>> sendFileToChat "general" "report.txt"
-true
 >>> show downloads
 [[FileTransfer from @alice: report.txt]]
 >>> saveFile 0 "received_report.txt"
-true
 ```
 
 ### 10.14. Процессы
 ```
 >>> let p = spawn lambda () -> (procRecv |> show)
 >>> procSend p "Hi"
-()
 >>> sleep 1s
-()
 ```
 
 ### 10.15. Криптография
@@ -574,7 +559,7 @@ true
 
 ## 11. Технические детали P2P
 - Протокол: JSON-строки поверх TLS.
-- Сертификаты генерируются автоматически (`chatlang_cert.pem`, `chatlang_key.pem`).
+- Сертификаты генерируются автоматически (`plic_cert.pem`, `plic_key.pem`).
 - P2P-порт: 19000 (можно изменить с помощью `--p2p-port`).
 - Порт сервера контактов: настраивается (например, 9000).
 - Внешний IP можно задать вручную или получить через `getPublicIP()`.
