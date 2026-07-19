@@ -16,7 +16,6 @@ pub fn start_contacts_server(addr: &str, password: Option<String>) -> Result<(Co
     listener.set_nonblocking(true)?;
     let acceptor = crate::p2p::get_tls_acceptor();
     let db_clone = db.clone();
-    let addr_owned = addr.to_string();
     let password_arc = Arc::new(password);
 
     let (stop_tx, stop_rx) = std::sync::mpsc::channel();

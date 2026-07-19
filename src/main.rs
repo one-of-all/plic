@@ -20,18 +20,17 @@ use codespan::Files;
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 use codespan_reporting::term as term_reporting;
-use std::sync::atomic;
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
-struct ChatLangHelper {
+struct PlicHelper {
     env: Arc<Mutex<Environment>>,
     keywords: Vec<String>,
     builtins: Vec<String>,
     types: Vec<String>,
 }
 
-impl Completer for ChatLangHelper {
+impl Completer for PlicHelper {
     type Candidate = String;
 
     fn complete(&self, line: &str, pos: usize, _ctx: &rustyline::Context<'_>) -> rustyline::Result<(usize, Vec<String>)> {
@@ -60,10 +59,10 @@ impl Completer for ChatLangHelper {
     }
 }
 
-impl Highlighter for ChatLangHelper {
+impl Highlighter for PlicHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
         let mut result = String::new();
-        let mut in_string = false;
+        let mut in_string = false;  // больше не mutable
         let mut in_comment = false;
         let mut multiline_comment_depth = 0;
         let mut in_fstring = false;
@@ -194,20 +193,26 @@ impl Highlighter for ChatLangHelper {
     }
 }
 
-impl Hinter for ChatLangHelper {
+impl Hinter for PlicHelper {
     type Hint = String;
     fn hint(&self, _line: &str, _pos: usize, _ctx: &rustyline::Context<'_>) -> Option<String> { None }
 }
 
-impl Validator for ChatLangHelper {
+impl Validator for PlicHelper {
     fn validate(&self, _ctx: &mut ValidationContext<'_>) -> rustyline::Result<ValidationResult> {
         Ok(ValidationResult::Valid(None))
     }
 }
 
-impl Helper for ChatLangHelper {}
+impl Helper for PlicHelper {}
 
 fn main() {
+    // Global panic handler to avoid unwrap messages.
+    std::panic::set_hook(Box::new(|panic_info| {
+        eprintln!("\x1b[31mFatal error\x1b[0m: {}", panic_info);
+        std::process::exit(1);
+    }));
+
     let args: Vec<String> = env::args().collect();
     let state = Arc::new(Mutex::new(ChatState::new()));
     let mut env = Environment::new();
@@ -266,7 +271,7 @@ fn main() {
         return;
     }
 
-    let helper = ChatLangHelper {
+    let helper = PlicHelper {
         env: Arc::clone(&env_arc),
         keywords: vec![
             "let".into(), "if".into(), "then".into(), "else".into(),
@@ -343,11 +348,10 @@ fn main() {
 
     let mut rl = Editor::new().unwrap();
     rl.set_helper(Some(helper));
-    let _ = rl.load_history(".chatlang_history");
+    let _ = rl.load_history(".plic_history");
 
     let mut buffer = String::new();
     let mut in_multiline = false;
-    let mut indent_level = 0;
 
     loop {
         let prompt = if buffer.is_empty() {
@@ -375,7 +379,6 @@ fn main() {
                     }
                     buffer.clear();
                     in_multiline = false;
-                    indent_level = 0;
                     continue;
                 }
 
@@ -387,7 +390,6 @@ fn main() {
                 if !in_multiline && trimmed.ends_with(':') {
                     buffer.push_str(&line);
                     in_multiline = true;
-                    indent_level = line.chars().take_while(|c| *c == ' ').count();
                     continue;
                 }
 
@@ -409,7 +411,6 @@ fn main() {
                         }
                         buffer.clear();
                         in_multiline = false;
-                        indent_level = 0;
                         continue;
                     }
                     continue;
@@ -461,12 +462,11 @@ fn main() {
                     println!("Aborted multi-line block.");
                     buffer.clear();
                     in_multiline = false;
-                    indent_level = 0;
                 }
                 continue;
             }
             Err(_) => break,
         }
     }
-    let _ = rl.save_history(".chatlang_history");
+    let _ = rl.save_history(".plic_history");
 }

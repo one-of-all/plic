@@ -25,6 +25,7 @@ impl From<LexError> for ParseError {
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
+/// Remove comments from input, handling nested `#- ... -#` blocks.
 pub fn strip_comments(input: &str) -> String {
     let mut output = String::new();
     let mut chars = input.chars().peekable();
@@ -53,6 +54,7 @@ pub fn strip_comments(input: &str) -> String {
                 }
                 continue;
             } else {
+                // Line comment
                 while let Some(c) = chars.next() {
                     if c == '\n' {
                         output.push(c);
@@ -429,8 +431,8 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
                 type_ann = Some(type_str);
             }
 
+            // Read parameters as a sequence of identifiers WITHOUT commas.
             let mut params = Vec::new();
-            // No parentheses allowed; just a sequence of identifiers without commas
             while *pos < tokens.len() && matches!(tokens[*pos].kind, TokenKind::Ident(_)) {
                 if let TokenKind::Ident(p) = &tokens[*pos].kind {
                     params.push(p.clone());
@@ -584,7 +586,6 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
         TokenKind::Backslash | TokenKind::Lambda => {
             *pos += 1;
             let mut params = Vec::new();
-            // No parentheses; just a sequence of identifiers without commas
             while *pos < tokens.len() && matches!(tokens[*pos].kind, TokenKind::Ident(_)) {
                 if let TokenKind::Ident(p) = &tokens[*pos].kind {
                     params.push(p.clone());
@@ -702,8 +703,21 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
         TokenKind::Loop => {
             *pos += 1;
             expect_kind(tokens, pos, TokenKind::LBrace)?;
-            let body = parse_expr(tokens, pos)?;
+            // Parse a block of expressions inside braces, separated by semicolons or newlines.
+            let mut exprs = Vec::new();
+            while *pos < tokens.len() && tokens[*pos].kind != TokenKind::RBrace {
+                let e = parse_expr(tokens, pos)?;
+                exprs.push(e);
+                if *pos < tokens.len() && (tokens[*pos].kind == TokenKind::Semicolon || tokens[*pos].kind == TokenKind::NEWLINE) {
+                    *pos += 1;
+                }
+            }
             let end = expect_kind(tokens, pos, TokenKind::RBrace)?;
+            let body = if exprs.len() == 1 {
+                exprs.remove(0)
+            } else {
+                Expr::Block(exprs, Span::new(start, end))
+            };
             Ok(Expr::Loop(Box::new(body), Span::new(start, end)))
         }
         TokenKind::Break => {
@@ -879,6 +893,26 @@ fn parse_postfix(mut expr: Expr, tokens: &[Token], pos: &mut usize) -> ParseResu
             let index = parse_expr(tokens, pos)?;
             let end = expect_kind(tokens, pos, TokenKind::RBracket)?;
             expr = Expr::Index(Box::new(expr), Box::new(index), Span::new(start, end));
+        } else if *pos < tokens.len() && tokens[*pos].kind == TokenKind::LBrace {
+            // Record update: expr { field = value, ... }
+            let start = tokens[*pos].start;
+            *pos += 1;
+            let mut updates = Vec::new();
+            while *pos < tokens.len() && tokens[*pos].kind != TokenKind::RBrace {
+                let field = match &tokens[*pos].kind {
+                    TokenKind::Ident(n) => n.clone(),
+                    _ => return Err(ParseError { message: "expected field name".to_string(), span: Span::new(tokens[*pos].start, tokens[*pos].end) }),
+                };
+                *pos += 1;
+                expect_kind(tokens, pos, TokenKind::Assign)?;
+                let val = parse_expr(tokens, pos)?;
+                updates.push((field, val));
+                if *pos < tokens.len() && tokens[*pos].kind == TokenKind::Comma {
+                    *pos += 1;
+                }
+            }
+            let end = expect_kind(tokens, pos, TokenKind::RBrace)?;
+            expr = Expr::RecordUpdate(Box::new(expr), updates, Span::new(start, end));
         } else if *pos < tokens.len() && tokens[*pos].kind == TokenKind::Dot {
             let start = tokens[*pos].start;
             *pos += 1;
@@ -897,30 +931,8 @@ fn parse_postfix(mut expr: Expr, tokens: &[Token], pos: &mut usize) -> ParseResu
                     let end = expect_kind(tokens, pos, TokenKind::RParen)?;
                     expr = Expr::MethodCall(Box::new(expr), field, args, Span::new(start, end));
                 } else {
-                    // Check for record update: expr { field = value }
-                    if *pos < tokens.len() && tokens[*pos].kind == TokenKind::LBrace {
-                        let start2 = tokens[*pos].start;
-                        *pos += 1;
-                        let mut updates = Vec::new();
-                        while *pos < tokens.len() && tokens[*pos].kind != TokenKind::RBrace {
-                            let f = match &tokens[*pos].kind {
-                                TokenKind::Ident(n) => n.clone(),
-                                _ => return Err(ParseError { message: "expected field name".to_string(), span: Span::new(tokens[*pos].start, tokens[*pos].end) }),
-                            };
-                            *pos += 1;
-                            expect_kind(tokens, pos, TokenKind::Assign)?;
-                            let val = parse_expr(tokens, pos)?;
-                            updates.push((f, val));
-                            if *pos < tokens.len() && tokens[*pos].kind == TokenKind::Comma {
-                                *pos += 1;
-                            }
-                        }
-                        let end2 = expect_kind(tokens, pos, TokenKind::RBrace)?;
-                        expr = Expr::RecordUpdate(Box::new(expr), updates, Span::new(start2, end2));
-                    } else {
-                        let end = tokens[*pos - 1].end;
-                        expr = Expr::FieldAccess(Box::new(expr), field, Span::new(start, end));
-                    }
+                    let end = tokens[*pos - 1].end;
+                    expr = Expr::FieldAccess(Box::new(expr), field, Span::new(start, end));
                 }
             } else {
                 return Err(ParseError { message: "expected field or method name".to_string(), span: Span::new(tokens[*pos].start, tokens[*pos].end) });

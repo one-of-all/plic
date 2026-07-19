@@ -2431,6 +2431,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         }),
     );
 
+    // p2pPort builtin
     let state_for_p2p_port = state.clone();
     env.set(
         "p2pPort".to_string(),
@@ -2440,6 +2441,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         }),
     );
 
+    // Start P2P listener, but without printing anything.
     {
         let mut state_guard = state.lock().unwrap();
         if state_guard.p2p_port == 0 {

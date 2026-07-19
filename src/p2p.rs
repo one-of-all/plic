@@ -40,8 +40,8 @@ static TLS_ACCEPTOR: Lazy<TlsAcceptor> = Lazy::new(|| {
 });
 
 fn load_or_generate_identity() -> Result<Identity, Box<dyn std::error::Error>> {
-    let cert_path = "chatlang_cert.pem";
-    let key_path = "chatlang_key.pem";
+    let cert_path = ".plic_cert.pem";
+    let key_path = ".plic_key.pem";
     if !Path::new(cert_path).exists() || !Path::new(key_path).exists() {
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
         let cert_pem = cert.serialize_pem()?;

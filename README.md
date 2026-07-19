@@ -49,13 +49,13 @@ sudo cp target/release/plic /bin/plic
 plic
 ```
 
-Появится приглашение `>>>`. Вводите выражения, результаты выводятся с помощью встроенной функции `show()`.
+Появится приглашение `>>>`. Вводите выражения, результаты выводятся с помощью встроенной функции `show`.
 
 Пример:
 
 ```
 >>> let square x = x * x
->>> show(square 5)
+>>> show $ square 5
 25
 >>> f"2 + 2 = {2 + 2}"
 "2 + 2 = 4"
@@ -65,17 +65,17 @@ plic
 
 ```
 >>> if x > 0:
-...     show("positive")
+...     show $ "positive"
 ... else:
-...     show("non-positive")
+...     show $ "non-positive"
 ```
 
 ### Запуск скриптов
 
-Передайте имя файла с расширением `.cl`:
+Передайте имя файла с расширением `.plic`:
 
 ```bash
-plic script.cl
+plic script.plic
 ```
 
 Интерпретатор выполнит скрипт и завершит работу.
@@ -83,46 +83,46 @@ plic script.cl
 ### Встроенные команды в REPL
 
 - `exit()` – завершить сеанс.
-- `load "файл.cl"` – выполнить скрипт в текущем окружении (определения сохраняются).
+- `load "файл.plic"` – выполнить скрипт в текущем окружении (определения сохраняются).
 
 ## Примеры
 
 ### Математика и функции
 
-```haskell
+```plic
 let add a b = a + b
 let inc = add 1
-show(inc 10)   -- 11
-show(sqrt 16)  -- 4.0
+show $ inc 10   # 11
+show $sqrt 16   # 4.0
 ```
 
 ### Работа со списками и множествами
 
-```haskell
+```plic
 let numbers = [1, 2, 3, 4, 5]
-show(map (lambda x -> x * 2) numbers)   -- [2, 4, 6, 8, 10]
-show(filter (lambda x -> x > 2) numbers) -- [3, 4, 5]
+show $ map (lambda x -> x * 2) numbers      # [2, 4, 6, 8, 10]
+show $ filter (lambda x -> x > 2) numbers   # [3, 4, 5]
 let s = %[1, 2, 3]
-show(setContains s 2)   -- true
+show $ setContains s 2  # true
 ```
 
 ### Списковые включения
 
-```haskell
-show([x * x for x in [1..10] if x % 2 == 0])   -- [4, 16, 36, 64, 100]
+```plic
+show $ [x * x for x in [1..10] if x % 2 == 0]   # [4, 16, 36, 64, 100]
 ```
 
 ### Классы и объекты
 
-```haskell
+```plic
 class Counter = (val = Num; inc(self) = self { val = self.val + 1 }; get(self) = self.val)
 let c = new Counter(0)
-show(c.inc().get())   -- 1
+show $ c.inc().get()    # 1
 ```
 
 ### Чат: запуск сервера и подключение
 
-```haskell
+```plic
 # терминал 1 (сервер)
 serverStart("127.0.0.1:9000", "secret")
 setExternalIP("203.0.113.5")   # если нужен внешний IP
@@ -136,12 +136,12 @@ sendChat("general", "Hello everyone!")
 # терминал 3 (Боб)
 login(@bob)
 connect("127.0.0.1:9000", @bob, "secret")
-inbox()   -- покажет сообщение от Алисы
+inbox()   # покажет сообщение от Алисы
 ```
 
 ### Отправка файлов
 
-```haskell
+```plic
 sendFile(@bob, "report.txt")
 downloads()
 saveFile(0, "received.txt")

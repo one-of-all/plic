@@ -1,5 +1,3 @@
-//! Error types with location support.
-
 use crate::ast::Span;
 use std::fmt;
 
