@@ -1,6 +1,3 @@
-//! Abstract Syntax Tree with source spans.
-
-/// Source location (byte offset from start of file).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
     pub start: usize,
@@ -18,8 +15,8 @@ impl Span {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
-    Int(i64),
-    Float(f64),
+    Int(i64),      // will become Num(f64) after parsing
+    Float(f64),    // also Num
     Char(char),
     String(String),
     Bool(bool),
@@ -114,6 +111,10 @@ pub enum Expr {
         filters: Vec<Box<Expr>>,
         span: Span,
     },
+    // New: type cast expression
+    Cast(Box<Expr>, String, Span),
+    // New: super method call
+    SuperMethod { method: String, args: Vec<Expr>, span: Span },
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,5 +1,3 @@
-//! Lexer with position tracking.
-
 use crate::ast::Literal;
 use std::time::Duration;
 
@@ -43,7 +41,6 @@ pub enum TokenKind {
     RBracket,
     Comma,
     Semicolon,
-    Backslash,
     Pipe,
     Arrow,
     FatArrow,
@@ -89,6 +86,7 @@ pub enum TokenKind {
     New,
     Loop,
     Break,
+    Super,      // new token for `super`
     Ident(String),
     Literal(Literal),
     FString(String),
@@ -217,7 +215,6 @@ impl Lexer {
             ']' => { self.advance(); Ok(Some(Token { kind: TokenKind::RBracket, start, end })) }
             ',' => { self.advance(); Ok(Some(Token { kind: TokenKind::Comma, start, end })) }
             ';' => { self.advance(); Ok(Some(Token { kind: TokenKind::Semicolon, start, end })) }
-            '\\' => { self.advance(); Ok(Some(Token { kind: TokenKind::Backslash, start, end })) }
             '|' => {
                 self.advance();
                 if self.current() == Some('>') {
@@ -363,6 +360,7 @@ impl Lexer {
                     "new" => Ok(Some(Token { kind: TokenKind::New, start, end })),
                     "loop" => Ok(Some(Token { kind: TokenKind::Loop, start, end })),
                     "break" => Ok(Some(Token { kind: TokenKind::Break, start, end })),
+                    "super" => Ok(Some(Token { kind: TokenKind::Super, start, end })),
                     _ => Ok(Some(Token { kind: TokenKind::Ident(ident), start, end })),
                 }
             }

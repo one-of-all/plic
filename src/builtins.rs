@@ -5,7 +5,7 @@ use crate::eval::{
 };
 use crate::p2p::{self, P2pMessage};
 use crate::server;
-use crate::types::{Environment, Value, JsonValue, FetchResult, Number};
+use crate::types::{Environment, Value, JsonValue, FetchResult};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{DateTime, Local};
@@ -30,9 +30,8 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "sqrt".to_string(),
         builtin!("sqrt", 1, |args| {
-            if let [Value::Num(n)] = &args[..] {
-                let x = n.to_f64();
-                Ok(Value::Num(Number::Float(x.sqrt())))
+            if let [Value::Num(x)] = &args[..] {
+                Ok(Value::Num(x.sqrt()))
             } else {
                 Err(ChatError::new("sqrt expects a Num argument", 1))
             }
@@ -42,9 +41,8 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "sin".to_string(),
         builtin!("sin", 1, |args| {
-            if let [Value::Num(n)] = &args[..] {
-                let x = n.to_f64();
-                Ok(Value::Num(Number::Float(x.sin())))
+            if let [Value::Num(x)] = &args[..] {
+                Ok(Value::Num(x.sin()))
             } else {
                 Err(ChatError::new("sin expects a Num argument", 1))
             }
@@ -54,9 +52,8 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "cos".to_string(),
         builtin!("cos", 1, |args| {
-            if let [Value::Num(n)] = &args[..] {
-                let x = n.to_f64();
-                Ok(Value::Num(Number::Float(x.cos())))
+            if let [Value::Num(x)] = &args[..] {
+                Ok(Value::Num(x.cos()))
             } else {
                 Err(ChatError::new("cos expects a Num argument", 1))
             }
@@ -66,9 +63,8 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "tan".to_string(),
         builtin!("tan", 1, |args| {
-            if let [Value::Num(n)] = &args[..] {
-                let x = n.to_f64();
-                Ok(Value::Num(Number::Float(x.tan())))
+            if let [Value::Num(x)] = &args[..] {
+                Ok(Value::Num(x.tan()))
             } else {
                 Err(ChatError::new("tan expects a Num argument", 1))
             }
@@ -78,9 +74,8 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "asin".to_string(),
         builtin!("asin", 1, |args| {
-            if let [Value::Num(n)] = &args[..] {
-                let x = n.to_f64();
-                Ok(Value::Num(Number::Float(x.asin())))
+            if let [Value::Num(x)] = &args[..] {
+                Ok(Value::Num(x.asin()))
             } else {
                 Err(ChatError::new("asin expects a Num argument", 1))
             }
@@ -90,9 +85,8 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "acos".to_string(),
         builtin!("acos", 1, |args| {
-            if let [Value::Num(n)] = &args[..] {
-                let x = n.to_f64();
-                Ok(Value::Num(Number::Float(x.acos())))
+            if let [Value::Num(x)] = &args[..] {
+                Ok(Value::Num(x.acos()))
             } else {
                 Err(ChatError::new("acos expects a Num argument", 1))
             }
@@ -102,36 +96,15 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "atan".to_string(),
         builtin!("atan", 1, |args| {
-            if let [Value::Num(n)] = &args[..] {
-                let x = n.to_f64();
-                Ok(Value::Num(Number::Float(x.atan())))
+            if let [Value::Num(x)] = &args[..] {
+                Ok(Value::Num(x.atan()))
             } else {
                 Err(ChatError::new("atan expects a Num argument", 1))
             }
         }),
     );
 
-    env.set(
-        "toFloat".to_string(),
-        builtin!("toFloat", 1, |args| {
-            if let [Value::Num(n)] = &args[..] {
-                Ok(Value::Num(Number::Float(n.to_f64())))
-            } else {
-                Err(ChatError::new("toFloat expects a Num argument", 1))
-            }
-        }),
-    );
-
-    env.set(
-        "toInt".to_string(),
-        builtin!("toInt", 1, |args| {
-            if let [Value::Num(n)] = &args[..] {
-                Ok(Value::Num(Number::Int(n.to_i64())))
-            } else {
-                Err(ChatError::new("toInt expects a Num argument", 1))
-            }
-        }),
-    );
+    // Removed toFloat and toInt.
 
     env.set(
         "show".to_string(),
@@ -150,7 +123,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         builtin!("parseInt", 1, |args| {
             if let [Value::String(s)] = &args[..] {
                 s.parse::<i64>()
-                    .map(|i| Value::Num(Number::Int(i)))
+                    .map(|i| Value::Num(i as f64))
                     .map_err(|_| ChatError::new("parseInt: invalid integer string", 1))
             } else {
                 Err(ChatError::new("parseInt expects a String argument", 1))
@@ -163,7 +136,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         builtin!("parseFloat", 1, |args| {
             if let [Value::String(s)] = &args[..] {
                 s.parse::<f64>()
-                    .map(|f| Value::Num(Number::Float(f)))
+                    .map(Value::Num)
                     .map_err(|_| ChatError::new("parseFloat: invalid float string", 1))
             } else {
                 Err(ChatError::new("parseFloat expects a String argument", 1))
@@ -174,14 +147,15 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "chr".to_string(),
         builtin!("chr", 1, |args| {
-            if let [Value::Num(Number::Int(i))] = &args[..] {
-                if let Some(c) = std::char::from_u32(*i as u32) {
+            if let [Value::Num(x)] = &args[..] {
+                let i = *x as u32;
+                if let Some(c) = std::char::from_u32(i) {
                     Ok(Value::Char(c))
                 } else {
                     Err(ChatError::new("chr: invalid Unicode code point", 1))
                 }
             } else {
-                Err(ChatError::new("chr expects an Int (Num) argument", 1))
+                Err(ChatError::new("chr expects a Num argument", 1))
             }
         }),
     );
@@ -190,7 +164,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         "ord".to_string(),
         builtin!("ord", 1, |args| {
             if let [Value::Char(c)] = &args[..] {
-                Ok(Value::Num(Number::Int(*c as i64)))
+                Ok(Value::Num(*c as u32 as f64))
             } else {
                 Err(ChatError::new("ord expects a Char argument", 1))
             }
@@ -224,12 +198,12 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         builtin!("length", 1, |args| {
             if let [v] = &args[..] {
                 match v {
-                    Value::List(l) => Ok(Value::Num(Number::Int(l.len() as i64))),
-                    Value::String(s) => Ok(Value::Num(Number::Int(s.len() as i64))),
-                    Value::ByteString(b) => Ok(Value::Num(Number::Int(b.len() as i64))),
-                    Value::Map(m) => Ok(Value::Num(Number::Int(m.len() as i64))),
-                    Value::Set(s) => Ok(Value::Num(Number::Int(s.len() as i64))),
-                    Value::Tuple(t) => Ok(Value::Num(Number::Int(t.len() as i64))),
+                    Value::List(l) => Ok(Value::Num(l.len() as f64)),
+                    Value::String(s) => Ok(Value::Num(s.len() as f64)),
+                    Value::ByteString(b) => Ok(Value::Num(b.len() as f64)),
+                    Value::Map(m) => Ok(Value::Num(m.len() as f64)),
+                    Value::Set(s) => Ok(Value::Num(s.len() as f64)),
+                    Value::Tuple(t) => Ok(Value::Num(t.len() as f64)),
                     _ => Err(ChatError::new(
                         "length expects a List, String, ByteString, Map, Set, or Tuple",
                         1,
@@ -335,7 +309,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "take".to_string(),
         builtin!("take", 2, |args| {
-            if let [Value::Num(Number::Int(n)), v] = &args[..] {
+            if let [Value::Num(n), v] = &args[..] {
                 let n = *n as usize;
                 match v {
                     Value::List(l) => {
@@ -357,7 +331,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
                 }
             } else {
                 Err(ChatError::new(
-                    "take expects an Int (Num) and a collection",
+                    "take expects a Num (integer) and a collection",
                     1,
                 ))
             }
@@ -367,7 +341,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "drop".to_string(),
         builtin!("drop", 2, |args| {
-            if let [Value::Num(Number::Int(n)), v] = &args[..] {
+            if let [Value::Num(n), v] = &args[..] {
                 let n = *n as usize;
                 match v {
                     Value::List(l) => {
@@ -395,7 +369,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
                 }
             } else {
                 Err(ChatError::new(
-                    "drop expects an Int (Num) and a collection",
+                    "drop expects a Num (integer) and a collection",
                     1,
                 ))
             }
@@ -520,18 +494,9 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
                     env.set(params[0].clone(), a.clone());
                     env.set(params[1].clone(), b.clone());
                     let result =
-                        eval::eval_expr(&body, &mut env, Arc::clone(&state_sortby)).unwrap_or(Value::Num(Number::Int(0)));
+                        eval::eval_expr(&body, &mut env, Arc::clone(&state_sortby)).unwrap_or(Value::Num(0.0));
                     match result {
-                        Value::Num(Number::Int(i)) => i.cmp(&0),
-                        Value::Num(Number::Float(f)) => {
-                            if f < 0.0 {
-                                std::cmp::Ordering::Less
-                            } else if f > 0.0 {
-                                std::cmp::Ordering::Greater
-                            } else {
-                                std::cmp::Ordering::Equal
-                            }
-                        }
+                        Value::Num(x) => x.partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal),
                         _ => std::cmp::Ordering::Equal,
                     }
                 });
@@ -552,12 +517,11 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
                 let mut total = 0.0;
                 for item in list {
                     match item {
-                        Value::Num(Number::Int(i)) => total += *i as f64,
-                        Value::Num(Number::Float(f)) => total += f,
+                        Value::Num(x) => total += x,
                         _ => return Err(ChatError::new("sum expects a list of numbers", 1)),
                     }
                 }
-                Ok(Value::Num(Number::Float(total)))
+                Ok(Value::Num(total))
             } else {
                 Err(ChatError::new("sum expects a List argument", 1))
             }
@@ -683,7 +647,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
             if let [Value::List(list), elem] = &args[..] {
                 for (i, item) in list.iter().enumerate() {
                     if item.display() == elem.display() {
-                        return Ok(Value::Maybe(Some(Box::new(Value::Num(Number::Int(i as i64))))));
+                        return Ok(Value::Maybe(Some(Box::new(Value::Num(i as f64)))));
                     }
                 }
                 Ok(Value::Maybe(None))
@@ -699,7 +663,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
             if let [Value::List(list), elem] = &args[..] {
                 for i in (0..list.len()).rev() {
                     if list[i].display() == elem.display() {
-                        return Ok(Value::Maybe(Some(Box::new(Value::Num(Number::Int(i as i64))))));
+                        return Ok(Value::Maybe(Some(Box::new(Value::Num(i as f64)))));
                     }
                 }
                 Ok(Value::Maybe(None))
@@ -797,7 +761,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "substring".to_string(),
         builtin!("substring", 3, |args| {
-            if let [Value::Num(Number::Int(start)), Value::Num(Number::Int(len)), Value::String(s)] = &args[..] {
+            if let [Value::Num(start), Value::Num(len), Value::String(s)] = &args[..] {
                 let start = *start as usize;
                 let len = *len as usize;
                 if start + len > s.len() {
@@ -807,7 +771,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
                 }
             } else {
                 Err(ChatError::new(
-                    "substring expects two Int (Num) arguments and a String",
+                    "substring expects two Num arguments and a String",
                     1,
                 ))
             }
@@ -820,7 +784,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
             if let [Value::String(s)] = &args[..] {
                 let v: SerdeValue =
                     serde_json::from_str(s).map_err(|e| ChatError::new(&format!("parseJson: {}", e), 1))?;
-                Ok(Value::Json(serde_json_to_chatlang(v)))
+                Ok(Value::Json(serde_json_to_plic(v)))
             } else {
                 Err(ChatError::new("parseJson expects a String argument", 1))
             }
@@ -831,7 +795,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         "encodeJson".to_string(),
         builtin!("encodeJson", 1, |args| {
             if let [Value::Json(j)] = &args[..] {
-                let serde_val = chatlang_json_to_serde(j);
+                let serde_val = plic_json_to_serde(j);
                 let json_str = serde_json::to_string(&serde_val)
                     .map_err(|e| ChatError::new(&format!("encodeJson: {}", e), 1))?;
                 Ok(Value::String(json_str))
@@ -939,14 +903,15 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
             if let [Value::List(list)] = &args[..] {
                 let mut bytes = Vec::new();
                 for item in list {
-                    if let Value::Num(Number::Int(i)) = item {
-                        if *i < 0 || *i > 255 {
+                    if let Value::Num(x) = item {
+                        let i = *x as i64;
+                        if i < 0 || i > 255 {
                             return Err(ChatError::new("packBytes: byte value out of range (0‑255)", 1));
                         }
-                        bytes.push(*i as u8);
+                        bytes.push(i as u8);
                     } else {
                         return Err(ChatError::new(
-                            "packBytes expects a list of Int (Num) values",
+                            "packBytes expects a list of Num values",
                             1,
                         ));
                     }
@@ -962,7 +927,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         "unpackBytes".to_string(),
         builtin!("unpackBytes", 1, |args| {
             if let [Value::ByteString(b)] = &args[..] {
-                let list = b.iter().map(|&x| Value::Num(Number::Int(x as i64))).collect();
+                let list = b.iter().map(|&x| Value::Num(x as f64)).collect();
                 Ok(Value::List(list))
             } else {
                 Err(ChatError::new("unpackBytes expects a ByteString argument", 1))
@@ -1092,7 +1057,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
             if let [Value::String(path)] = &args[..] {
                 let meta =
                     std::fs::metadata(path).map_err(|e| ChatError::new(&format!("fileSize: {}", e), 1))?;
-                Ok(Value::Num(Number::Int(meta.len() as i64)))
+                Ok(Value::Num(meta.len() as f64))
             } else {
                 Err(ChatError::new("fileSize expects a String path", 1))
             }
@@ -1159,7 +1124,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
                 use std::os::unix::fs::PermissionsExt;
                 let meta =
                     fs::metadata(path).map_err(|e| ChatError::new(&format!("filePermissions: {}", e), 1))?;
-                Ok(Value::Num(Number::Int(meta.permissions().mode() as i64)))
+                Ok(Value::Num(meta.permissions().mode() as f64))
             } else {
                 Err(ChatError::new("filePermissions expects a String path", 1))
             }
@@ -1168,14 +1133,14 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     #[cfg(not(unix))]
     env.set(
         "filePermissions".to_string(),
-        builtin!("filePermissions", 1, |_args| Ok(Value::Num(Number::Int(0)))),
+        builtin!("filePermissions", 1, |_args| Ok(Value::Num(0.0))),
     );
 
     #[cfg(unix)]
     env.set(
         "setFilePermissions".to_string(),
         builtin!("setFilePermissions", 2, |args| {
-            if let [Value::String(path), Value::Num(Number::Int(mode))] = &args[..] {
+            if let [Value::String(path), Value::Num(mode)] = &args[..] {
                 use std::os::unix::fs::PermissionsExt;
                 let mut perms = fs::metadata(path)
                     .map_err(|e| ChatError::new(&format!("setFilePermissions: {}", e), 1))?
@@ -1186,7 +1151,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
                 Ok(Value::Unit)
             } else {
                 Err(ChatError::new(
-                    "setFilePermissions expects a String path and an Int (Num) mode",
+                    "setFilePermissions expects a String path and a Num mode",
                     1,
                 ))
             }
@@ -1682,13 +1647,13 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     env.set(
         "saveFile".to_string(),
         builtin!("saveFile", 2, move |args| {
-            if let [Value::Num(Number::Int(index)), Value::String(path)] = &args[..] {
+            if let [Value::Num(index), Value::String(path)] = &args[..] {
                 let mut state = state_clone.lock().unwrap();
                 state.save_file(*index as usize, path)?;
                 Ok(Value::Bool(true))
             } else {
                 Err(ChatError::new(
-                    "saveFile expects an Int (Num) index and a String path",
+                    "saveFile expects a Num index and a String path",
                     1,
                 ))
             }
@@ -1805,7 +1770,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
                 }
             }
             let count = state.contacts.len() as i64;
-            Ok(Value::Num(Number::Int(count)))
+            Ok(Value::Num(count as f64))
         }),
     );
 
@@ -2074,7 +2039,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         "mapSize".to_string(),
         builtin!("mapSize", 1, |args| {
             if let [Value::Map(map)] = &args[..] {
-                Ok(Value::Num(Number::Int(map.len() as i64)))
+                Ok(Value::Num(map.len() as f64))
             } else {
                 Err(ChatError::new("mapSize expects a Map argument", 1))
             }
@@ -2210,7 +2175,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         "setSize".to_string(),
         builtin!("setSize", 1, |args| {
             if let [Value::Set(set)] = &args[..] {
-                Ok(Value::Num(Number::Int(set.len() as i64)))
+                Ok(Value::Num(set.len() as f64))
             } else {
                 Err(ChatError::new("setSize expects a Set argument", 1))
             }
@@ -2413,23 +2378,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         }),
     );
 
-    let global_env_del = global_env.clone();
-    env.set(
-        "del".to_string(),
-        builtin!("del", 1, move |args| {
-            if let [Value::String(name)] = &args[..] {
-                let mut env_guard = global_env_del.lock().unwrap();
-                if env_guard.vars.remove(name).is_some() {
-                    env_guard.type_map.remove(name);
-                    Ok(Value::Unit)
-                } else {
-                    Err(ChatError::new(&format!("Variable '{}' not found", name), 1))
-                }
-            } else {
-                Err(ChatError::new("del expects a String (variable name)", 1))
-            }
-        }),
-    );
+    // Removed 'del' builtin.
 
     // p2pPort builtin
     let state_for_p2p_port = state.clone();
@@ -2437,7 +2386,7 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
         "p2pPort".to_string(),
         builtin!("p2pPort", 0, move |_args| {
             let port = state_for_p2p_port.lock().unwrap().p2p_port;
-            Ok(Value::Num(Number::Int(port as i64)))
+            Ok(Value::Num(port as f64))
         }),
     );
 
@@ -2452,27 +2401,27 @@ pub fn populate(env: &mut Environment, state: Arc<Mutex<ChatState>>, global_env:
     }
 }
 
-fn serde_json_to_chatlang(v: SerdeValue) -> JsonValue {
+fn serde_json_to_plic(v: SerdeValue) -> JsonValue {
     match v {
         SerdeValue::Null => JsonValue::Null,
         SerdeValue::Bool(b) => JsonValue::Bool(b),
         SerdeValue::Number(n) => JsonValue::Number(n.as_f64().unwrap_or(0.0)),
         SerdeValue::String(s) => JsonValue::String(s),
         SerdeValue::Array(arr) => {
-            let items: Vec<JsonValue> = arr.into_iter().map(serde_json_to_chatlang).collect();
+            let items: Vec<JsonValue> = arr.into_iter().map(serde_json_to_plic).collect();
             JsonValue::Array(items)
         }
         SerdeValue::Object(map) => {
             let mut obj = BTreeMap::new();
             for (k, v) in map {
-                obj.insert(k, serde_json_to_chatlang(v));
+                obj.insert(k, serde_json_to_plic(v));
             }
             JsonValue::Object(obj)
         }
     }
 }
 
-fn chatlang_json_to_serde(j: &JsonValue) -> SerdeValue {
+fn plic_json_to_serde(j: &JsonValue) -> SerdeValue {
     match j {
         JsonValue::Null => SerdeValue::Null,
         JsonValue::Bool(b) => SerdeValue::Bool(*b),
@@ -2481,13 +2430,13 @@ fn chatlang_json_to_serde(j: &JsonValue) -> SerdeValue {
         }
         JsonValue::String(s) => SerdeValue::String(s.clone()),
         JsonValue::Array(arr) => {
-            let items: Vec<SerdeValue> = arr.iter().map(chatlang_json_to_serde).collect();
+            let items: Vec<SerdeValue> = arr.iter().map(plic_json_to_serde).collect();
             SerdeValue::Array(items)
         }
         JsonValue::Object(map) => {
             let mut obj = serde_json::Map::new();
             for (k, v) in map {
-                obj.insert(k.clone(), chatlang_json_to_serde(v));
+                obj.insert(k.clone(), plic_json_to_serde(v));
             }
             SerdeValue::Object(obj)
         }

@@ -11,7 +11,6 @@ PLIC — это динамический язык программировани
 - **Упоминания** – `@uid` в сообщениях доставляет личную копию.
 - **Вывод ошибок** – файл, строка, столбец, фрагмент кода.
 - **F-строки** – `f"текст {выражение} текст"` с подсветкой в REPL.
-- **`del`** – удаление переменной.
 - **`load`** – импорт файлов.
 - **Устойчивость к панике** – нет `unwrap`; ошибки обрабатываются.
 
@@ -81,7 +80,7 @@ Hello, World!
 ### 4.1. Основы
 - Литералы, переменные.
 - Применение функции каррировано и левоассоциативно: `f a b c` = `(((f a) b) c)`.
-- Лямбда: `lambda x y -> x + y` или `\ x -> x * 2`.
+- Лямбда: `lambda x y -> x + y`.
 - Индексация: `expr[index]` работает со списками, строками, байтовыми строками, кортежами, map (возвращает значение или `Unit`), set (возвращает `Bool`).
 
 ### 4.2. Условный оператор
@@ -217,7 +216,6 @@ data Option a = None | Some a
 
 ### 9.1. Математика
 - `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan :: Num -> Num`
-- `toFloat :: Num -> Num`, `toInt :: Num -> Num`
 
 ### 9.2. Преобразования и интроспекция
 - `show :: a -> ()` – печатает значение и возвращает `()`.
@@ -352,7 +350,6 @@ data Option a = None | Some a
 - `kyberDecapsulate :: SecretKey -> Ciphertext -> SharedSecret`
 
 ### 9.15. Управление переменными
-- `del :: String -> ()` – удаляет переменную.
 - `load :: String -> ()` – загружает и выполняет файл.
 
 ### 9.16. P2P
@@ -394,6 +391,7 @@ error: variable 'x' already defined
 >>> show 'a'
 a
 >>> show '\n'
+
 
 >>> let msg = "Hello"
 >>> show msg
@@ -505,23 +503,33 @@ Alice
 **Установка внешнего IP и запуск сервера с паролем:**
 ```
 >>> setExternalIP "203.0.113.5"
+()
 >>> serverStart "0.0.0.0:9000" "secret"
+()
 ```
 
 **Алиса:**
 ```
 >>> login @alice
+()
 >>> connect "127.0.0.1:9000" @alice "secret"
+1
 >>> newChat "general" [@bob, @alice]
+general
 >>> open "general"
+()
 >>> sendChat "general" "Hello everyone!"
+true
 >>> send @bob "Hello Bob!"
+true
 ```
 
 **Боб (другой экземпляр):**
 ```
 >>> login @bob
+()
 >>> connect "127.0.0.1:9000" @bob "secret"
+1
 >>> show inbox
 [[Message from @alice in general: "Hello everyone!"], [Message from @alice: "Hello Bob!"]]
 >>> show $ history "general"
@@ -531,15 +539,18 @@ Alice
 **Передача файла:**
 ```
 >>> writeFile "report.txt" "Sales data"
+()
 >>> sendFileToChat "general" "report.txt"
+true
 >>> show downloads
 [[FileTransfer from @alice: report.txt]]
 >>> saveFile 0 "received_report.txt"
+true
 ```
 
 ### 10.14. Процессы
 ```
->>> let p = spawn lambda () -> (procRecv |> show)
+>>> let p = spawn lambda -> (procRecv |> show)
 >>> procSend p "Hi"
 >>> sleep 1s
 ```
@@ -559,7 +570,7 @@ true
 
 ## 11. Технические детали P2P
 - Протокол: JSON-строки поверх TLS.
-- Сертификаты генерируются автоматически (`plic_cert.pem`, `plic_key.pem`).
+- Сертификаты генерируются автоматически (`chatlang_cert.pem`, `chatlang_key.pem`).
 - P2P-порт: 19000 (можно изменить с помощью `--p2p-port`).
 - Порт сервера контактов: настраивается (например, 9000).
 - Внешний IP можно задать вручную или получить через `getPublicIP()`.

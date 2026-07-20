@@ -1,9 +1,7 @@
-//! REPL with syntax highlighting and error reporting.
-
 use plic::chat::ChatState;
 use plic::eval::eval_expr;
 use plic::types::Environment;
-use plic::parser::{parse_expression, parse_script, ParseError, strip_comments};
+use plic::parser::{parse_expression, parse_script};
 use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::completion::Completer;
@@ -23,14 +21,14 @@ use codespan_reporting::term as term_reporting;
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
-struct ChatLangHelper {
+struct PlicHelper {
     env: Arc<Mutex<Environment>>,
     keywords: Vec<String>,
     builtins: Vec<String>,
     types: Vec<String>,
 }
 
-impl Completer for ChatLangHelper {
+impl Completer for PlicHelper {
     type Candidate = String;
 
     fn complete(&self, line: &str, pos: usize, _ctx: &rustyline::Context<'_>) -> rustyline::Result<(usize, Vec<String>)> {
@@ -59,19 +57,22 @@ impl Completer for ChatLangHelper {
     }
 }
 
-impl Highlighter for ChatLangHelper {
+impl Highlighter for PlicHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
         let mut result = String::new();
-        let in_string = false;
-        let mut in_comment = false;
-        let mut multiline_comment_depth = 0;
+        let mut chars = line.chars().peekable();
+        let mut in_string = false;
         let mut in_fstring = false;
-        let mut brace_depth = 0;
+        let mut fstring_brace_depth = 0;
+        let mut escape = false;
+        let mut multiline_comment_depth = 0;
+        let mut in_comment = false;
+
         let keywords = [
-            "let", "if", "then", "else", "case", "of", "lambda", "\\",
+            "let", "if", "then", "else", "case", "of", "lambda",
             "data", "struct", "try", "catch", "error", "for", "while",
             "true", "false", "in", "and", "or", "not", "class", "extends", "new",
-            "loop", "break", "load", "del"
+            "loop", "break", "load", "super"
         ];
         let types = [
             "Num", "Char", "String", "Bool", "Unit", "Uid",
@@ -80,7 +81,7 @@ impl Highlighter for ChatLangHelper {
             "FileTransfer", "FetchOptions", "FetchResult", "Map", "Set",
             "ClassInstance"
         ];
-        let mut chars = line.chars().peekable();
+
         while let Some(ch) = chars.next() {
             if ch == '#' && chars.peek() == Some(&'-') {
                 chars.next();
@@ -128,24 +129,91 @@ impl Highlighter for ChatLangHelper {
                 result.push(ch);
                 continue;
             }
-            if in_fstring && ch == '"' {
-                result.push_str("\"\x1b[0m");
-                in_fstring = false;
+
+            if ch == '"' && !in_fstring {
+                if !in_string {
+                    in_string = true;
+                    result.push_str("\x1b[32m");
+                    result.push(ch);
+                } else {
+                    if escape {
+                        result.push(ch);
+                    } else {
+                        result.push_str("\"\x1b[0m");
+                        in_string = false;
+                    }
+                    escape = false;
+                }
                 continue;
             }
-            if in_fstring && ch == '{' {
-                brace_depth += 1;
-                result.push_str("\x1b[0m");
-                result.push(ch);
+
+            if in_string {
+                if ch == '\\' && !escape {
+                    escape = true;
+                    result.push(ch);
+                } else if ch == '"' && escape {
+                    escape = false;
+                    result.push(ch);
+                } else {
+                    if escape { escape = false; }
+                    result.push(ch);
+                }
                 continue;
             }
-            if in_fstring && ch == '}' {
-                brace_depth -= 1;
+
+            if in_fstring {
+                if ch == '"' && fstring_brace_depth == 0 {
+                    result.push_str("\"\x1b[0m");
+                    in_fstring = false;
+                    continue;
+                }
+                if ch == '{' {
+                    if let Some(&next) = chars.peek() {
+                        if next == '{' {
+                            chars.next();
+                            result.push_str("{{");
+                            continue;
+                        }
+                    }
+                    fstring_brace_depth += 1;
+                    result.push_str("\x1b[0m");
+                    result.push(ch);
+                    let mut expr_chars = String::new();
+                    let mut depth = 1;
+                    while let Some(c) = chars.next() {
+                        if c == '{' {
+                            depth += 1;
+                            expr_chars.push(c);
+                        } else if c == '}' {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            } else {
+                                expr_chars.push(c);
+                            }
+                        } else {
+                            expr_chars.push(c);
+                        }
+                    }
+                    result.push_str(&expr_chars);
+                    result.push_str("\x1b[32m");
+                    result.push('}');
+                    continue;
+                }
+                if ch == '}' {
+                    if let Some(&next) = chars.peek() {
+                        if next == '}' {
+                            chars.next();
+                            result.push_str("}}");
+                            continue;
+                        }
+                    }
+                    fstring_brace_depth -= 1;
+                    result.push_str("\x1b[32m");
+                    result.push(ch);
+                    continue;
+                }
                 result.push_str("\x1b[32m");
-                result.push(ch);
-                continue;
-            }
-            if in_fstring && brace_depth > 0 {
                 result.push(ch);
                 continue;
             }
@@ -193,21 +261,20 @@ impl Highlighter for ChatLangHelper {
     }
 }
 
-impl Hinter for ChatLangHelper {
+impl Hinter for PlicHelper {
     type Hint = String;
     fn hint(&self, _line: &str, _pos: usize, _ctx: &rustyline::Context<'_>) -> Option<String> { None }
 }
 
-impl Validator for ChatLangHelper {
+impl Validator for PlicHelper {
     fn validate(&self, _ctx: &mut ValidationContext<'_>) -> rustyline::Result<ValidationResult> {
         Ok(ValidationResult::Valid(None))
     }
 }
 
-impl Helper for ChatLangHelper {}
+impl Helper for PlicHelper {}
 
 fn main() {
-    // Global panic handler to avoid unwrap messages.
     std::panic::set_hook(Box::new(|panic_info| {
         eprintln!("\x1b[31mFatal error\x1b[0m: {}", panic_info);
         std::process::exit(1);
@@ -271,21 +338,20 @@ fn main() {
         return;
     }
 
-    let helper = ChatLangHelper {
+    let helper = PlicHelper {
         env: Arc::clone(&env_arc),
         keywords: vec![
             "let".into(), "if".into(), "then".into(), "else".into(),
-            "case".into(), "of".into(), "lambda".into(), "\\".into(),
+            "case".into(), "of".into(), "lambda".into(),
             "data".into(), "struct".into(), "try".into(), "catch".into(),
             "error".into(), "for".into(), "while".into(), "in".into(),
             "and".into(), "or".into(), "not".into(),
             "class".into(), "extends".into(), "new".into(),
-            "loop".into(), "break".into(), "load".into(), "del".into(),
+            "loop".into(), "break".into(), "load".into(), "super".into(),
         ],
         builtins: vec![
             "sqrt".into(), "sin".into(), "cos".into(), "tan".into(),
             "asin".into(), "acos".into(), "atan".into(),
-            "toFloat".into(), "toInt".into(),
             "show".into(), "parseInt".into(), "parseFloat".into(),
             "chr".into(), "ord".into(),
             "null".into(), "length".into(), "map".into(), "filter".into(),
@@ -328,7 +394,7 @@ fn main() {
             "listDir".into(), "createDir".into(), "removeDir".into(),
             "fileMove".into(), "filePermissions".into(), "setFilePermissions".into(),
             "typeof".into(), "getPublicIP".into(), "setExternalIP".into(),
-            "exit".into(), "load".into(), "del".into(),
+            "exit".into(), "load".into(),
             "logout".into(), "deleteUser".into(), "deleteChat".into(),
             "listChats".into(), "members".into(),
             "addContact".into(), "removeContact".into(),
@@ -348,10 +414,11 @@ fn main() {
 
     let mut rl = Editor::new().unwrap();
     rl.set_helper(Some(helper));
-    let _ = rl.load_history(".chatlang_history");
+    let _ = rl.load_history(".plic_history");
 
     let mut buffer = String::new();
     let mut in_multiline = false;
+    let mut first_indent = 0;
 
     loop {
         let prompt = if buffer.is_empty() {
@@ -364,96 +431,114 @@ fn main() {
             Ok(line) => {
                 rl.add_history_entry(line.as_str());
                 let trimmed = line.trim();
+                let indent = line.chars().take_while(|c| *c == ' ').count();
 
-                if in_multiline && (trimmed == "end" || (line.chars().take_while(|c| *c == ' ').count() == 0 && trimmed.is_empty())) {
-                    let full_block = buffer.clone();
-                    match parse_script(&full_block) {
+                if !in_multiline {
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+
+                    if trimmed == "{" || trimmed == "}" {
+                        eprintln!("\x1b[31merror\x1b[0m: Unexpected token '{}'", trimmed);
+                        continue;
+                    }
+
+                    // If line ends with a single colon (not ::), enter multiline mode with colon removed
+                    if trimmed.ends_with(':') && !line.contains("::") {
+                        let mut modified = line.trim_end().to_string();
+                        while modified.ends_with(':') || modified.ends_with(' ') {
+                            modified.pop();
+                        }
+                        buffer = modified;
+                        in_multiline = true;
+                        first_indent = indent;
+                        continue;
+                    }
+
+                    match parse_expression(&line) {
                         Ok(expr) => {
                             let mut env_guard = env_arc.lock().unwrap();
                             match eval_expr(&expr, &mut env_guard, Arc::clone(&state)) {
                                 Ok(_) => {},
                                 Err(err) => eprintln!("\x1b[31merror\x1b[0m: {}", err),
                             }
+                            continue;
                         }
-                        Err(e) => eprintln!("\x1b[31merror\x1b[0m: Parse error: {}", e),
+                        Err(_) => {
+                            buffer = line;
+                            in_multiline = true;
+                            first_indent = indent;
+                            continue;
+                        }
                     }
-                    buffer.clear();
-                    in_multiline = false;
-                    continue;
-                }
+                } else {
+                    if trimmed.is_empty() {
+                        if !buffer.is_empty() {
+                            let full_block = buffer.clone();
+                            match parse_script(&full_block) {
+                                Ok(expr) => {
+                                    let mut env_guard = env_arc.lock().unwrap();
+                                    match eval_expr(&expr, &mut env_guard, Arc::clone(&state)) {
+                                        Ok(_) => {},
+                                        Err(err) => eprintln!("\x1b[31merror\x1b[0m: {}", err),
+                                    }
+                                }
+                                Err(e) => eprintln!("\x1b[31merror\x1b[0m: Parse error: {}", e),
+                            }
+                            buffer.clear();
+                            in_multiline = false;
+                            first_indent = 0;
+                        }
+                        continue;
+                    }
 
-                let stripped = strip_comments(&line);
-                if stripped.trim().is_empty() && !in_multiline {
-                    continue;
-                }
-
-                if !in_multiline && trimmed.ends_with(':') {
-                    buffer.push_str(&line);
-                    in_multiline = true;
-                    continue;
-                }
-
-                if in_multiline {
-                    buffer.push('\n');
-                    buffer.push_str(&line);
-                    let current_indent = line.chars().take_while(|c| *c == ' ').count();
-                    if current_indent == 0 && !trimmed.is_empty() && trimmed != "end" {
+                    if indent > first_indent {
+                        buffer.push('\n');
+                        buffer.push_str(&line);
+                        continue;
+                    } else {
                         let full_block = buffer.clone();
-                        match parse_script(&full_block) {
+                        let block_ok = match parse_script(&full_block) {
                             Ok(expr) => {
                                 let mut env_guard = env_arc.lock().unwrap();
                                 match eval_expr(&expr, &mut env_guard, Arc::clone(&state)) {
-                                    Ok(_) => {},
-                                    Err(err) => eprintln!("\x1b[31merror\x1b[0m: {}", err),
+                                    Ok(_) => true,
+                                    Err(err) => {
+                                        eprintln!("\x1b[31merror\x1b[0m: {}", err);
+                                        false
+                                    }
                                 }
                             }
-                            Err(e) => eprintln!("\x1b[31merror\x1b[0m: Parse error: {}", e),
-                        }
+                            Err(e) => {
+                                eprintln!("\x1b[31merror\x1b[0m: Parse error: {}", e);
+                                false
+                            }
+                        };
                         buffer.clear();
                         in_multiline = false;
-                        continue;
-                    }
-                    continue;
-                }
+                        first_indent = 0;
 
-                match parse_expression(&stripped) {
-                    Ok(expr) => {
-                        let mut env_guard = env_arc.lock().unwrap();
-                        match eval_expr(&expr, &mut env_guard, Arc::clone(&state)) {
-                            Ok(_) => {},
-                            Err(err) => {
-                                if err.span.is_some() {
-                                    let mut files = Files::new();
-                                    let file_id = files.add("<repl>", line.clone());
-                                    let diagnostic = Diagnostic::error()
-                                        .with_message(err.message)
-                                        .with_labels(vec![
-                                            Label::primary(file_id, err.span.unwrap().start..err.span.unwrap().end)
-                                        ]);
-                                    let writer = StandardStream::stderr(ColorChoice::Always);
-                                    let config = term_reporting::Config::default();
-                                    let _ = term_reporting::emit(&mut writer.lock(), &config, &files, &diagnostic);
-                                } else {
-                                    eprintln!("\x1b[31merror\x1b[0m: {}", err);
+                        if !block_ok {
+                            continue;
+                        }
+
+                        if !trimmed.is_empty() {
+                            match parse_expression(&line) {
+                                Ok(expr) => {
+                                    let mut env_guard = env_arc.lock().unwrap();
+                                    match eval_expr(&expr, &mut env_guard, Arc::clone(&state)) {
+                                        Ok(_) => {},
+                                        Err(err) => eprintln!("\x1b[31merror\x1b[0m: {}", err),
+                                    }
+                                }
+                                Err(_) => {
+                                    buffer = line;
+                                    in_multiline = true;
+                                    first_indent = indent;
                                 }
                             }
                         }
-                    }
-                    Err(ParseError { message, span }) => {
-                        if span != plic::ast::Span::dummy() {
-                            let mut files = Files::new();
-                            let file_id = files.add("<repl>", line.clone());
-                            let diagnostic = Diagnostic::error()
-                                .with_message(message)
-                                .with_labels(vec![
-                                    Label::primary(file_id, span.start..span.end)
-                                ]);
-                            let writer = StandardStream::stderr(ColorChoice::Always);
-                            let config = term_reporting::Config::default();
-                            let _ = term_reporting::emit(&mut writer.lock(), &config, &files, &diagnostic);
-                        } else {
-                            eprintln!("\x1b[31merror\x1b[0m: Parse error: {}", message);
-                        }
+                        continue;
                     }
                 }
             }
@@ -462,11 +547,12 @@ fn main() {
                     println!("Aborted multi-line block.");
                     buffer.clear();
                     in_multiline = false;
+                    first_indent = 0;
                 }
                 continue;
             }
             Err(_) => break,
         }
     }
-    let _ = rl.save_history(".chatlang_history");
+    let _ = rl.save_history(".plic_history");
 }

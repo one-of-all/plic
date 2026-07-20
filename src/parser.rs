@@ -1,5 +1,3 @@
-//! Parser with indentation‑sensitive blocks, list comprehensions, and spans.
-
 use crate::ast::*;
 use crate::lexer::{LexError, Lexer, Token, TokenKind};
 
@@ -25,7 +23,6 @@ impl From<LexError> for ParseError {
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
-/// Remove comments from input, handling nested `#- ... -#` blocks.
 pub fn strip_comments(input: &str) -> String {
     let mut output = String::new();
     let mut chars = input.chars().peekable();
@@ -54,7 +51,6 @@ pub fn strip_comments(input: &str) -> String {
                 }
                 continue;
             } else {
-                // Line comment
                 while let Some(c) = chars.next() {
                     if c == '\n' {
                         output.push(c);
@@ -154,6 +150,8 @@ fn e_span(e: &Expr) -> Span {
         Expr::SetLiteral(_, s) => *s,
         Expr::FString(_, s) => *s,
         Expr::ListComp { span, .. } => *span,
+        Expr::Cast(_, _, s) => *s,
+        Expr::SuperMethod { span, .. } => *span,
     }
 }
 
@@ -403,6 +401,31 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
             }
             parse_postfix(expr, tokens, pos)
         }
+        TokenKind::Super => {
+            *pos += 1;
+            let _end = tokens[*pos - 1].end;
+            if *pos < tokens.len() && tokens[*pos].kind == TokenKind::Dot {
+                *pos += 1;
+                if let TokenKind::Ident(method) = &tokens[*pos].kind {
+                    let method = method.clone();
+                    *pos += 1;
+                    expect_kind(tokens, pos, TokenKind::LParen)?;
+                    let mut args = Vec::new();
+                    while *pos < tokens.len() && tokens[*pos].kind != TokenKind::RParen {
+                        args.push(parse_expr(tokens, pos)?);
+                        if *pos < tokens.len() && tokens[*pos].kind == TokenKind::Comma {
+                            *pos += 1;
+                        }
+                    }
+                    let end2 = expect_kind(tokens, pos, TokenKind::RParen)?;
+                    Ok(Expr::SuperMethod { method, args, span: Span::new(start, end2) })
+                } else {
+                    Err(ParseError { message: "expected method name after super.".to_string(), span: Span::new(tokens[*pos].start, tokens[*pos].end) })
+                }
+            } else {
+                Err(ParseError { message: "expected .method after super".to_string(), span: Span::new(tokens[*pos].start, tokens[*pos].end) })
+            }
+        }
         TokenKind::If => {
             *pos += 1;
             let cond = parse_expr(tokens, pos)?;
@@ -582,7 +605,7 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
                 Ok(expr)
             }
         }
-        TokenKind::Backslash | TokenKind::Lambda => {
+        TokenKind::Lambda => {
             *pos += 1;
             let mut params = Vec::new();
             while *pos < tokens.len() && matches!(tokens[*pos].kind, TokenKind::Ident(_)) {
@@ -701,21 +724,9 @@ fn parse_atom(tokens: &[Token], pos: &mut usize) -> ParseResult<Expr> {
         }
         TokenKind::Loop => {
             *pos += 1;
-            expect_kind(tokens, pos, TokenKind::LBrace)?;
-            let mut exprs = Vec::new();
-            while *pos < tokens.len() && tokens[*pos].kind != TokenKind::RBrace {
-                let e = parse_expr(tokens, pos)?;
-                exprs.push(e);
-                if *pos < tokens.len() && (tokens[*pos].kind == TokenKind::Semicolon || tokens[*pos].kind == TokenKind::NEWLINE) {
-                    *pos += 1;
-                }
-            }
-            let end = expect_kind(tokens, pos, TokenKind::RBrace)?;
-            let body = if exprs.len() == 1 {
-                exprs.remove(0)
-            } else {
-                Expr::Block(exprs, Span::new(start, end))
-            };
+            expect_kind(tokens, pos, TokenKind::Colon)?;
+            let body = parse_expr_or_block(tokens, pos)?;
+            let end = e_span(&body).end;
             Ok(Expr::Loop(Box::new(body), Span::new(start, end)))
         }
         TokenKind::Break => {
@@ -891,6 +902,17 @@ fn parse_postfix(mut expr: Expr, tokens: &[Token], pos: &mut usize) -> ParseResu
             let index = parse_expr(tokens, pos)?;
             let end = expect_kind(tokens, pos, TokenKind::RBracket)?;
             expr = Expr::Index(Box::new(expr), Box::new(index), Span::new(start, end));
+        } else if *pos < tokens.len() && tokens[*pos].kind == TokenKind::DoubleColon {
+            let start = tokens[*pos].start;
+            *pos += 1;
+            let type_name = match &tokens[*pos].kind {
+                TokenKind::Ident(t) => t.clone(),
+                _ => return Err(ParseError { message: "expected type name after ::".to_string(), span: Span::new(tokens[*pos].start, tokens[*pos].end) }),
+            };
+            *pos += 1;
+            let end = tokens[*pos - 1].end;
+            expr = Expr::Cast(Box::new(expr), type_name, Span::new(start, end));
+            continue;
         } else if *pos < tokens.len() && tokens[*pos].kind == TokenKind::LBrace {
             let start = tokens[*pos].start;
             *pos += 1;
@@ -957,8 +979,9 @@ fn parse_application(mut func: Expr, tokens: &[Token], pos: &mut usize) -> Parse
 
 fn is_argument_start(kind: &TokenKind) -> bool {
     matches!(kind,
-        TokenKind::Literal(_) | TokenKind::Ident(_) | TokenKind::LParen | TokenKind::LBracket |
-        TokenKind::Backslash | TokenKind::Lambda | TokenKind::If | TokenKind::Let | TokenKind::Case |
+        TokenKind::Literal(_) | TokenKind::Ident(_) | TokenKind::Super |
+        TokenKind::LParen | TokenKind::LBracket |
+        TokenKind::Lambda | TokenKind::If | TokenKind::Let | TokenKind::Case |
         TokenKind::Try | TokenKind::Error | TokenKind::For | TokenKind::While | TokenKind::Not |
         TokenKind::Minus | TokenKind::Percent | TokenKind::Class | TokenKind::New | TokenKind::Struct | TokenKind::Data |
         TokenKind::FString(_) | TokenKind::Loop | TokenKind::Break
@@ -1063,7 +1086,7 @@ fn parse_pattern(tokens: &[Token], pos: &mut usize) -> Result<Pattern, ParseErro
                 let end = expect_kind(tokens, pos, TokenKind::RParen)?;
                 Ok(Pattern::Tuple(pats, Span::new(start, end)))
             } else {
-                let end = expect_kind(tokens, pos, TokenKind::RParen)?;
+                let _end = expect_kind(tokens, pos, TokenKind::RParen)?;
                 Ok(pat)
             }
         }

@@ -1,9 +1,7 @@
-//! Evaluator with currying, Num unification, loops, break, and list comprehensions.
-
 use crate::ast::*;
 use crate::chat::ChatState;
 use crate::error::ChatError;
-use crate::types::{Environment, Value, Number};
+use crate::types::{Environment, Value};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, atomic::Ordering};
@@ -225,14 +223,16 @@ pub fn eval_expr(
             let s = eval_expr(start, env, Arc::clone(&state))?;
             let e = eval_expr(end, env, Arc::clone(&state))?;
             match (s, e) {
-                (Value::Num(Number::Int(a)), Value::Num(Number::Int(b))) => {
+                (Value::Num(a), Value::Num(b)) => {
+                    let a = a as i64;
+                    let b = b as i64;
                     let mut list = Vec::new();
                     for i in a..b {
-                        list.push(Value::Num(Number::Int(i)));
+                        list.push(Value::Num(i as f64));
                     }
                     Ok(Value::List(list))
                 }
-                _ => Err(ChatError::with_span("Range requires Ints", 1, *span)),
+                _ => Err(ChatError::with_span("Range requires Num (integer values)", 1, *span)),
             }
         }
         Expr::Pipe(left, right, span) => {
@@ -272,9 +272,8 @@ pub fn eval_expr(
             let coll = eval_expr(list, env, Arc::clone(&state))?;
             let index = eval_expr(idx, env, Arc::clone(&state))?;
             let index_int = match index {
-                Value::Num(Number::Int(i)) => i,
-                Value::Num(Number::Float(f)) => f as i64,
-                _ => return Err(ChatError::with_span("Index must be numeric (Int or Float)", 1, *span)),
+                Value::Num(x) => x as i64,
+                _ => return Err(ChatError::with_span("Index must be Num (integer)", 1, *span)),
             };
             match coll {
                 Value::Map(map) => {
@@ -309,7 +308,7 @@ pub fn eval_expr(
                     if i < 0 || i as usize >= b.len() {
                         Err(ChatError::with_span("Index out of bounds", 1, *span))
                     } else {
-                        Ok(Value::Num(Number::Int(b[i as usize] as i64)))
+                        Ok(Value::Num(b[i as usize] as f64))
                     }
                 }
                 _ => Err(ChatError::with_span("Indexing requires list, string, byte string, map, or set", 1, *span)),
@@ -430,9 +429,10 @@ pub fn eval_expr(
             Ok(Value::Unit)
         }
         Expr::New(class_name, args, span) => {
+            // Create instance with fields from args (by position)
             let class_def = env.get(class_name)
                 .ok_or_else(|| ChatError::with_span(&format!("Class '{}' not defined", class_name), 1, *span))?;
-            if let Value::Record(info) = class_def {
+            if let Value::Record(ref info) = class_def {
                 let fields = if let Some(Value::List(field_list)) = info.get("fields") {
                     field_list.iter().filter_map(|v| {
                         if let Value::String(s) = v { Some(s.clone()) } else { None }
@@ -449,10 +449,42 @@ pub fn eval_expr(
                         field_values.insert(field.clone(), Value::Unit);
                     }
                 }
-                let instance = Value::ClassInstance {
+                let mut instance = Value::ClassInstance {
                     class: class_name.clone(),
                     fields: field_values,
                 };
+                // If there is an init method, call it with the arguments
+                if let Some(init_method) = find_method(&class_def, "init", env).ok() {
+                    // Call init on the instance with the same args
+                    let mut call_args = vec![instance.clone()];
+                    for arg in args {
+                        call_args.push(eval_expr(arg, env, Arc::clone(&state))?);
+                    }
+                    // Evaluate init method (it may modify fields via self)
+                    match init_method {
+                        Value::Closure(params, body, closure_env) => {
+                            let mut new_env = closure_env.clone();
+                            if params.len() != call_args.len() {
+                                return Err(ChatError::with_span("Wrong number of arguments to init", 1, *span));
+                            }
+                            for (p, a) in params.iter().zip(call_args) {
+                                new_env.set(p.clone(), a);
+                            }
+                            let _result = eval_expr(&body, &mut new_env, Arc::clone(&state))?;
+                            // After init, the instance might be updated; we need to reflect changes.
+                            // Since we passed instance as a value, it was cloned; but we need to get updated fields.
+                            // We can retrieve self from the environment (if named "self") and use it.
+                            if let Some(Value::ClassInstance { fields: updated_fields, .. }) = new_env.get("self") {
+                                instance = Value::ClassInstance {
+                                    class: class_name.clone(),
+                                    fields: updated_fields.clone(),
+                                };
+                            }
+                            // Alternatively, we could require init to return the instance, but we'll rely on self mutation.
+                        }
+                        _ => return Err(ChatError::with_span("init is not a function", 1, *span)),
+                    }
+                }
                 Ok(instance)
             } else {
                 Err(ChatError::with_span("Invalid class definition", 1, *span))
@@ -558,6 +590,55 @@ pub fn eval_expr(
             eval_comp(expr, generators, filters, env, Arc::clone(&state), &mut result)?;
             Ok(Value::List(result))
         }
+        Expr::Cast(expr, target_type, span) => {
+            let val = eval_expr(expr, env, Arc::clone(&state))?;
+            cast_value(val, target_type, *span)
+        }
+        Expr::SuperMethod { method, args, span } => {
+            let self_val = env.get("self")
+                .ok_or_else(|| ChatError::with_span("super used outside of method (no self)", 1, *span))?;
+            match self_val {
+                Value::ClassInstance { ref class, fields: _ } => {
+                    // Find parent class
+                    let class_def = env.get(&class)
+                        .ok_or_else(|| ChatError::with_span(&format!("Class '{}' not found", class), 1, *span))?;
+                    let parent_name = if let Value::Record(info) = class_def {
+                        if let Some(Value::String(parent)) = info.get("extends") {
+                            if parent.is_empty() {
+                                return Err(ChatError::with_span("No superclass", 1, *span));
+                            }
+                            parent.clone()
+                        } else {
+                            return Err(ChatError::with_span("No superclass", 1, *span));
+                        }
+                    } else {
+                        return Err(ChatError::with_span("Invalid class definition", 1, *span));
+                    };
+                    // Find method in parent hierarchy (starting from parent)
+                    let parent_def = env.get(&parent_name)
+                        .ok_or_else(|| ChatError::with_span(&format!("Parent class '{}' not found", parent_name), 1, *span))?;
+                    let method_val = find_method(&parent_def, method, env)?;
+                    let mut all_args = vec![self_val.clone()];
+                    for a in args {
+                        all_args.push(eval_expr(a, env, Arc::clone(&state))?);
+                    }
+                    match method_val {
+                        Value::Closure(params, body, closure_env) => {
+                            let mut new_env = closure_env.clone();
+                            if params.len() != all_args.len() {
+                                return Err(ChatError::with_span("Wrong number of arguments to super method", 1, *span));
+                            }
+                            for (p, a) in params.iter().zip(all_args) {
+                                new_env.set(p.clone(), a);
+                            }
+                            eval_expr(&body, &mut new_env, state)
+                        }
+                        _ => Err(ChatError::with_span("Super method is not a function", 1, *span)),
+                    }
+                }
+                _ => Err(ChatError::with_span("super called on non-class instance", 1, *span)),
+            }
+        }
     }
 }
 
@@ -605,13 +686,15 @@ fn e_span(e: &Expr) -> Span {
         Expr::SetLiteral(_, s) => *s,
         Expr::FString(_, s) => *s,
         Expr::ListComp { span, .. } => *span,
+        Expr::Cast(_, _, s) => *s,
+        Expr::SuperMethod { span, .. } => *span,
     }
 }
 
 fn eval_literal(lit: &Literal) -> Result<Value, ChatError> {
     Ok(match lit {
-        Literal::Int(i) => Value::Num(Number::Int(*i)),
-        Literal::Float(f) => Value::Num(Number::Float(*f)),
+        Literal::Int(i) => Value::Num(*i as f64),
+        Literal::Float(f) => Value::Num(*f),
         Literal::Char(c) => Value::Char(*c),
         Literal::String(s) => Value::String(s.clone()),
         Literal::Bool(b) => Value::Bool(*b),
@@ -684,36 +767,28 @@ fn eval_binop(op: &BinOp, left: Value, right: Value, span: Span) -> Result<Value
             if let (_, Value::String(_)) = (&left, &right) {
                 return Err(ChatError::with_span("Use '++' to concatenate strings, not '+'", 1, span));
             }
-            num_op(left, right, |a,b| a+b, |a,b| a+b, span)
+            num_op(left, right, |a,b| a+b, span)
         }
-        BinOp::Sub => num_op(left, right, |a,b| a-b, |a,b| a-b, span),
-        BinOp::Mul => num_op(left, right, |a,b| a*b, |a,b| a*b, span),
-        BinOp::Div => match (left, right) {
-            (Value::Num(Number::Int(a)), Value::Num(Number::Int(b))) => {
-                if b == 0 { Err(ChatError::with_span("Division by zero", 1, span)) }
-                else { Ok(Value::Num(Number::Int(a / b))) }
+        BinOp::Sub => num_op(left, right, |a,b| a-b, span),
+        BinOp::Mul => num_op(left, right, |a,b| a*b, span),
+        BinOp::Div => {
+            match (left, right) {
+                (Value::Num(a), Value::Num(b)) => {
+                    if b == 0.0 { Err(ChatError::with_span("Division by zero", 1, span)) }
+                    else { Ok(Value::Num(a / b)) }
+                }
+                _ => Err(ChatError::with_span("Division requires Num", 1, span)),
             }
-            (Value::Num(Number::Float(a)), Value::Num(Number::Float(b))) => {
-                if b == 0.0 { Err(ChatError::with_span("Division by zero", 1, span)) }
-                else { Ok(Value::Num(Number::Float(a / b))) }
+        }
+        BinOp::Mod => {
+            match (left, right) {
+                (Value::Num(a), Value::Num(b)) => {
+                    if b == 0.0 { Err(ChatError::with_span("Modulo by zero", 1, span)) }
+                    else { Ok(Value::Num(a % b)) }
+                }
+                _ => Err(ChatError::with_span("Modulo requires Num (integers)", 1, span)),
             }
-            (Value::Num(Number::Int(a)), Value::Num(Number::Float(b))) => {
-                if b == 0.0 { Err(ChatError::with_span("Division by zero", 1, span)) }
-                else { Ok(Value::Num(Number::Float(a as f64 / b))) }
-            }
-            (Value::Num(Number::Float(a)), Value::Num(Number::Int(b))) => {
-                if b == 0 { Err(ChatError::with_span("Division by zero", 1, span)) }
-                else { Ok(Value::Num(Number::Float(a / b as f64))) }
-            }
-            _ => Err(ChatError::with_span("Division requires Num", 1, span)),
-        },
-        BinOp::Mod => match (left, right) {
-            (Value::Num(Number::Int(a)), Value::Num(Number::Int(b))) => {
-                if b == 0 { Err(ChatError::with_span("Modulo by zero", 1, span)) }
-                else { Ok(Value::Num(Number::Int(a % b))) }
-            }
-            _ => Err(ChatError::with_span("Modulo requires Int", 1, span)),
-        },
+        }
         BinOp::Eq => Ok(Value::Bool(left.display() == right.display())),
         BinOp::Neq => Ok(Value::Bool(left.display() != right.display())),
         BinOp::Lt => cmp_op(left, right, |a,b| a < b, span),
@@ -737,10 +812,10 @@ fn eval_binop(op: &BinOp, left: Value, right: Value, span: Span) -> Result<Value
                     }
                 }
                 Value::ByteString(b) => {
-                    if let Value::Num(Number::Int(i)) = left {
+                    if let Value::Num(i) = left {
                         Ok(Value::Bool(b.contains(&(i as u8))))
                     } else {
-                        Err(ChatError::with_span("in for ByteString requires Int", 1, span))
+                        Err(ChatError::with_span("in for ByteString requires Num (integer)", 1, span))
                     }
                 }
                 Value::Set(set) => {
@@ -762,12 +837,9 @@ fn eval_binop(op: &BinOp, left: Value, right: Value, span: Span) -> Result<Value
     }
 }
 
-fn num_op(l: Value, r: Value, ifn: fn(i64, i64) -> i64, ffn: fn(f64, f64) -> f64, span: Span) -> Result<Value, ChatError> {
+fn num_op(l: Value, r: Value, op: fn(f64, f64) -> f64, span: Span) -> Result<Value, ChatError> {
     match (l, r) {
-        (Value::Num(Number::Int(a)), Value::Num(Number::Int(b))) => Ok(Value::Num(Number::Int(ifn(a, b)))),
-        (Value::Num(Number::Float(a)), Value::Num(Number::Float(b))) => Ok(Value::Num(Number::Float(ffn(a, b)))),
-        (Value::Num(Number::Int(a)), Value::Num(Number::Float(b))) => Ok(Value::Num(Number::Float(ffn(a as f64, b)))),
-        (Value::Num(Number::Float(a)), Value::Num(Number::Int(b))) => Ok(Value::Num(Number::Float(ffn(a, b as f64)))),
+        (Value::Num(a), Value::Num(b)) => Ok(Value::Num(op(a, b))),
         _ => Err(ChatError::with_span("Arithmetic requires Num", 1, span)),
     }
 }
@@ -780,8 +852,7 @@ fn cmp_op(l: Value, r: Value, f: fn(f64, f64) -> bool, _span: Span) -> Result<Va
 
 fn to_f64(v: &Value) -> Result<f64, ChatError> {
     match v {
-        Value::Num(Number::Int(i)) => Ok(*i as f64),
-        Value::Num(Number::Float(x)) => Ok(*x),
+        Value::Num(x) => Ok(*x),
         _ => Err(ChatError::new("Comparison requires numeric value", 1)),
     }
 }
@@ -1050,4 +1121,138 @@ fn find_method(class_def: &Value, method: &str, env: &Environment) -> Result<Val
         }
     }
     Err(ChatError::new(&format!("Method '{}' not found in class hierarchy", method), 1))
+}
+
+/// Cast a value to a given type name.
+fn cast_value(val: Value, target_type: &str, span: Span) -> Result<Value, ChatError> {
+    match target_type {
+        "Num" => {
+            match val {
+                Value::Num(_) => Ok(val),
+                Value::String(s) => {
+                    s.parse::<f64>()
+                        .map(Value::Num)
+                        .map_err(|_| ChatError::with_span("Cannot cast string to Num", 1, span))
+                }
+                Value::Char(c) => Ok(Value::Num(c as u32 as f64)),
+                Value::Bool(b) => Ok(Value::Num(if b { 1.0 } else { 0.0 })),
+                _ => Err(ChatError::with_span(&format!("Cannot cast {} to Num", type_name(&val)), 1, span)),
+            }
+        }
+        "String" => {
+            match val {
+                Value::String(_) => Ok(val),
+                Value::Num(x) => Ok(Value::String(x.to_string())),
+                Value::Char(c) => Ok(Value::String(c.to_string())),
+                Value::Bool(b) => Ok(Value::String(b.to_string())),
+                Value::Unit => Ok(Value::String("()".to_string())),
+                Value::Uid(u) => Ok(Value::String(u)),
+                _ => Err(ChatError::with_span(&format!("Cannot cast {} to String", type_name(&val)), 1, span)),
+            }
+        }
+        "Char" => {
+            match val {
+                Value::Char(_) => Ok(val),
+                Value::Num(x) => {
+                    let c = x as u32;
+                    if let Some(ch) = std::char::from_u32(c) {
+                        Ok(Value::Char(ch))
+                    } else {
+                        Err(ChatError::with_span("Invalid Unicode code point", 1, span))
+                    }
+                }
+                Value::String(s) => {
+                    if s.len() == 1 {
+                        Ok(Value::Char(s.chars().next().unwrap()))
+                    } else {
+                        Err(ChatError::with_span("String must be exactly one character", 1, span))
+                    }
+                }
+                _ => Err(ChatError::with_span(&format!("Cannot cast {} to Char", type_name(&val)), 1, span)),
+            }
+        }
+        "Bool" => {
+            match val {
+                Value::Bool(_) => Ok(val),
+                Value::Num(x) => Ok(Value::Bool(x != 0.0)),
+                Value::String(s) => Ok(Value::Bool(!s.is_empty())),
+                _ => Err(ChatError::with_span(&format!("Cannot cast {} to Bool", type_name(&val)), 1, span)),
+            }
+        }
+        "ByteString" => {
+            match val {
+                Value::ByteString(_) => Ok(val),
+                Value::String(s) => Ok(Value::ByteString(s.into_bytes())),
+                Value::List(list) => {
+                    let mut bytes = Vec::new();
+                    for v in list {
+                        if let Value::Num(x) = v {
+                            let b = x as u8;
+                            if x < 0.0 || x > 255.0 {
+                                return Err(ChatError::with_span("ByteString element out of range (0-255)", 1, span));
+                            }
+                            bytes.push(b);
+                        } else {
+                            return Err(ChatError::with_span("List must contain numbers", 1, span));
+                        }
+                    }
+                    Ok(Value::ByteString(bytes))
+                }
+                _ => Err(ChatError::with_span(&format!("Cannot cast {} to ByteString", type_name(&val)), 1, span)),
+            }
+        }
+        "List" => {
+            match val {
+                Value::List(_) => Ok(val),
+                Value::String(s) => Ok(Value::List(s.chars().map(Value::Char).collect())),
+                Value::ByteString(b) => Ok(Value::List(b.iter().map(|&x| Value::Num(x as f64)).collect())),
+                Value::Map(map) => {
+                    let list: Vec<Value> = map.into_iter().map(|(k, v)| Value::Tuple(vec![Value::String(k), v])).collect();
+                    Ok(Value::List(list))
+                }
+                Value::Set(set) => {
+                    let list: Vec<Value> = set.into_iter().map(Value::String).collect();
+                    Ok(Value::List(list))
+                }
+                _ => Err(ChatError::with_span(&format!("Cannot cast {} to List", type_name(&val)), 1, span)),
+            }
+        }
+        "Map" => {
+            match val {
+                Value::Map(_) => Ok(val),
+                Value::List(list) => {
+                    let mut map = BTreeMap::new();
+                    for item in list {
+                        match item {
+                            Value::Tuple(v) if v.len() == 2 => {
+                                map.insert(v[0].display(), v[1].clone());
+                            }
+                            _ => return Err(ChatError::with_span("List elements must be 2-element tuples", 1, span)),
+                        }
+                    }
+                    Ok(Value::Map(map))
+                }
+                _ => Err(ChatError::with_span(&format!("Cannot cast {} to Map", type_name(&val)), 1, span)),
+            }
+        }
+        "Set" => {
+            match val {
+                Value::Set(_) => Ok(val),
+                Value::List(list) => {
+                    let set: BTreeSet<_> = list.into_iter().map(|v| v.display()).collect();
+                    Ok(Value::Set(set))
+                }
+                _ => Err(ChatError::with_span(&format!("Cannot cast {} to Set", type_name(&val)), 1, span)),
+            }
+        }
+        _ => {
+            // For custom types, we could allow if the value is already that type, or maybe not.
+            // For simplicity, we only allow if the value is already of that type.
+            if type_name(&val) == target_type {
+                Ok(val)
+            } else {
+                Err(ChatError::with_span(&format!("Cannot cast {} to {}", type_name(&val), target_type), 1, span))
+            }
+        }
+    }
 }

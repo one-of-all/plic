@@ -21,30 +21,9 @@ pub struct FetchResult {
     pub headers: Vec<(String, String)>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Number {
-    Int(i64),
-    Float(f64),
-}
-
-impl Number {
-    pub fn to_f64(&self) -> f64 {
-        match self {
-            Number::Int(i) => *i as f64,
-            Number::Float(f) => *f,
-        }
-    }
-    pub fn to_i64(&self) -> i64 {
-        match self {
-            Number::Int(i) => *i,
-            Number::Float(f) => *f as i64,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub enum Value {
-    Num(Number),
+    Num(f64),                     // unified number type
     Char(char),
     String(String),
     Bool(bool),
@@ -121,15 +100,12 @@ impl fmt::Debug for Value {
 impl Value {
     pub fn display(&self) -> String {
         match self {
-            Value::Num(n) => match n {
-                Number::Int(i) => format!("{}", i),
-                Number::Float(x) => {
-                    let s = format!("{:.10}", x);
-                    if s == "-0.0000000000" { "0.0".to_string() }
-                    else {
-                        let trimmed = s.trim_end_matches('0').trim_end_matches('.');
-                        if trimmed.is_empty() { "0".to_string() } else { trimmed.to_string() }
-                    }
+            Value::Num(x) => {
+                let s = format!("{:.10}", x);
+                if s == "-0.0000000000" { "0.0".to_string() }
+                else {
+                    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
+                    if trimmed.is_empty() { "0".to_string() } else { trimmed.to_string() }
                 }
             }
             Value::Char(c) => c.to_string(),
